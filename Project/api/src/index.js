@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import authRoutes from './routes/auth.js';
 import meRoutes from './routes/me.js';
 import portfolioRoutes from './routes/portfolio.js';
+import holdingRoutes from './routes/holdings.js';
 
 dotenv.config();
 
@@ -12,6 +13,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api', meRoutes);
 app.use('/api/portfolios', portfolioRoutes);
+app.use('api/holdings', holdingRoutes);
 
 app.get('/health', (req, res) => res.json ({ok: true}));
 
