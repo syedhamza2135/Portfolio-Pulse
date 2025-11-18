@@ -2,6 +2,7 @@ import { Router } from "express";
 import Joi from 'joi';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import passport from 'passport';
 import User from "../models/user.js";
 
 const router = Router();
@@ -38,18 +39,13 @@ router.post('/login', async (req, res) => {
     if(error){
         return res.status(400).json({ error: error.message });
     }
-
-    const user = await User.findOne({ email: value.email });
-    if(!user){
-        return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const ok = await bcrypt.compare(value.password, user.passwordHash);
-    if(!ok){
-        return res.status(401).json({ error: 'Invalid credentials' });
-    }
-    const token = jwt.sign({sub: user.id, email: user.email}, process.env.JWT_SECRET, {expiresIn: '1d'});
-    return res.json({ token });
+    // Delegate authentication to Passport local strategy
+    passport.authenticate('local', { session: false }, (err, user, info) => {
+        if (err) return res.status(500).json({ error: 'Authentication error' });
+        if (!user) return res.status(401).json({ error: info?.message || 'Invalid credentials' });
+        const token = jwt.sign({ sub: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1d' });
+        return res.json({ token });
+    })(req, res);
 });
 
 export default router;
