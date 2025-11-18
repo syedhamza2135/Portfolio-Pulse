@@ -30,7 +30,7 @@ router.put('/:id', async (req, res) => {
     
     const portfolio = await Portfolio.findOneAndUpdate(
         { _id: req.params.id, userId: req.user.sub },
-        { ...value, lastUpdated: newDate() },
+        { ...value, lastUpdated: new Date() },
         { new: true }
     );
 
@@ -38,7 +38,7 @@ router.put('/:id', async (req, res) => {
         return res.status(404).json( { error: 'Portfolio not found' });
     }
 
-    res.status.json(portfolio);
+    res.json(portfolio);
 });
 
 router.delete('/:id', async (req, res) => {
