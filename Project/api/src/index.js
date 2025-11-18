@@ -13,7 +13,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api', meRoutes);
 app.use('/api/portfolios', portfolioRoutes);
-app.use('api/holdings', holdingRoutes);
+app.use('/api/holdings', holdingRoutes);
 
 app.get('/health', (req, res) => res.json ({ok: true}));
 
