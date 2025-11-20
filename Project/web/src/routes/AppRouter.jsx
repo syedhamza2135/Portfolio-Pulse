@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import ProtectedRoute from "../components/layout/ProtectedRoute";
 import Login from "../pages/auth/Login";
 import Register from "../pages/auth/Register";
@@ -11,9 +11,14 @@ import AddHolding from "../pages/holdings/AddHolding";
 export default function AppRouter() {
   return (
     <Routes>
+      {/* Public routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
 
+      {/* Root route */}
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
+      {/* Protected routes */}
       <Route
         path="/dashboard"
         element={
@@ -50,7 +55,17 @@ export default function AppRouter() {
         }
       />
 
-      <Route path="/create-portfolio" element={<CreatePortfolio />} />
+      <Route
+        path="/create-portfolio"
+        element={
+          <ProtectedRoute>
+            <CreatePortfolio />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Fallback for unmatched routes */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
