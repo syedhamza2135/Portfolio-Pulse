@@ -1,18 +1,14 @@
-import jwt from 'jsonwebtoken';
+import passport from 'passport';
 
-export function requireAuth(req, res, next){
-    const hdr = req.headers.authorization || '';
-    const token = hdr.startsWith('Bearer ') ? hdr.slice(7) : null;
-
-    if(!token){
-        return res.status(401).json({error: 'Missing token' });
+export function requireAuth(req, res, next) {
+  passport.authenticate('jwt', { session: false }, (err, user, info) => {
+    if (err) {
+      return res.status(500).json({ error: 'Server error' });
     }
-
-    try {
-        const payload = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = payload;
-        next();
-    } catch {
-        return res.status(401).json({ error: 'Invalid token '});
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
     }
+    req.user = user;
+    next();
+  })(req, res, next);
 }
