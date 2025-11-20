@@ -6,7 +6,6 @@ import User from '../models/user.js';
 const LocalStrategy = passportLocal.Strategy;
 
 export default function setupPassport(passport) {
-  // Local strategy for username/password login
   passport.use(
     new LocalStrategy(
       { usernameField: 'email', passwordField: 'password' },
@@ -24,7 +23,6 @@ export default function setupPassport(passport) {
     )
   );
 
-  // JWT strategy for protected routes
   const opts = {
     jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
     secretOrKey: process.env.JWT_SECRET

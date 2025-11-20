@@ -20,7 +20,7 @@ router.post('/register', async (req, res) => {
 
     const exists = await User.findOne({ email: value.email });
     if (exists){
-        return res.status(409).json({error: 'Email already registered' });
+        return res.status(400).json({error: 'Registration Failed' });
     }
 
     const passwordHash = await bcrypt.hash(value.password, 12);
@@ -34,18 +34,28 @@ const loginSchema = Joi.object({
     password: Joi.string().required()
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', async (req, res, next) => {
     const {error, value} = loginSchema.validate(req.body);
     if(error){
         return res.status(400).json({ error: error.message });
     }
-    // Delegate authentication to Passport local strategy
+    
     passport.authenticate('local', { session: false }, (err, user, info) => {
         if (err) return res.status(500).json({ error: 'Authentication error' });
         if (!user) return res.status(401).json({ error: info?.message || 'Invalid credentials' });
-        const token = jwt.sign({ sub: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1d' });
-        return res.json({ token });
-    })(req, res);
+        const token = jwt.sign(
+            {sub: user.id, email: user.email }, 
+            process.env.JWT_SECRET,
+            { expiresIn: '1d'}
+        );
+        return res.json({
+            token,
+            user: {
+                id: user._id,
+                email: user.email
+            }
+        });
+    })(req, res, next);
 });
 
 export default router;
