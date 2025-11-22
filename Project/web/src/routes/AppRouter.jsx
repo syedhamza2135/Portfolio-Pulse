@@ -1,21 +1,38 @@
-import { Routes, Route, Navigate } from "react-router-dom";
-import ProtectedRoute from "../components/layout/ProtectedRoute";
-import Login from "../pages/auth/Login";
-import Register from "../pages/auth/Register";
-import Dashboard from "../pages/dashboard/Dashboard";
-import PortfolioList from "../pages/portfolios/PortfolioList";
-import PortfolioDetails from "../pages/portfolios/PortfolioDetails";
-import CreatePortfolio from "../pages/portfolios/CreatePortfolio";
+import PublicRoute from "../components/layout/PublicRoute.jsx";
+import Login from "../pages/auth/Login.jsx";
+import Register from "../pages/auth/Register.jsx";
+import Dashboard from "../pages/dashboard/Dashboard.jsx";
+import PortfolioList from "../pages/portfolios/PortfolioList.jsx";
+import PortfolioDetails from "../pages/portfolios/PortfolioDetails.jsx";
 import AddHolding from "../pages/holdings/AddHolding";
+import CreatePortfolio from "../pages/portfolios/CreatePortfolio.jsx";
+import ProtectedRoute from "../components/layout/ProtectedRoute.jsx";
+
+import { Routes, Route, Navigate } from "react-router-dom";
+
 
 export default function AppRouter() {
   return (
     <Routes>
       {/* Public routes */}
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
+      <Route
+        path="/login"
+        element={
+          <PublicRoute>
+            <Login />
+          </PublicRoute>
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <PublicRoute>
+            <Register />
+          </PublicRoute>
+        }
+      />
 
-      {/* Root route */}
+      {/* Root redirect */}
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
       {/* Protected routes */}
@@ -27,7 +44,6 @@ export default function AppRouter() {
           </ProtectedRoute>
         }
       />
-
       <Route
         path="/portfolios"
         element={
@@ -36,27 +52,24 @@ export default function AppRouter() {
           </ProtectedRoute>
         }
       />
-
       <Route
-        path="/portfolio/:id"
+        path="/portfolios/:id"
         element={
           <ProtectedRoute>
             <PortfolioDetails />
           </ProtectedRoute>
         }
       />
-
       <Route
-        path="/portfolio/:id/add"
+        path="/portfolios/:id/add"
         element={
           <ProtectedRoute>
             <AddHolding />
           </ProtectedRoute>
         }
       />
-
       <Route
-        path="/create-portfolio"
+        path="/portfolios/create"
         element={
           <ProtectedRoute>
             <CreatePortfolio />
@@ -64,8 +77,8 @@ export default function AppRouter() {
         }
       />
 
-      {/* Fallback for unmatched routes */}
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {/* Fallback */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }
