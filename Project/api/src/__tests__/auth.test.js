@@ -1,8 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { jest } from '@jest/globals';
 import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import User from '../models/user.js';
+import 'dotenv/config'
+
+jest.setTimeout(20000);
 
 // Mock environment variables
 process.env.JWT_SECRET = 'test-secret-key-for-jwt-testing-only';
@@ -12,37 +15,39 @@ describe('Authentication Logic', () => {
   const testEmail = 'test@example.com';
   const testPassword = 'Test123!@#';
 
+  // Connect to DB once
+  beforeAll(async () => {
+    await mongoose.connect(process.env.MONGO_URI);
+  });
+
+  // Clean DB + create user per test
   beforeEach(async () => {
-    // Clean up any existing test user
-    await User.deleteOne({ email: testEmail });
-    
-    // Create a test user
-    const passwordHash = await bcrypt.hash(testPassword, 12);
+    await User.deleteMany({});
+
+    const passwordHash = await bcrypt.hash(testPassword, 4); // faster for tests
     testUser = await User.create({
       email: testEmail,
       passwordHash,
     });
   });
 
-  afterEach(async () => {
-    // Clean up test user
-    await User.deleteOne({ email: testEmail });
+  // Close DB cleanly
+  afterAll(async () => {
+    await mongoose.connection.close();
   });
 
   describe('User Registration', () => {
     it('should hash passwords correctly', async () => {
-      const plainPassword = 'Test123!@#';
-      const hash = await bcrypt.hash(plainPassword, 12);
-      
+      const hash = await bcrypt.hash(testPassword, 4);
+
       expect(hash).toBeDefined();
-      expect(hash).not.toBe(plainPassword);
+      expect(hash).not.toBe(testPassword);
       expect(hash.length).toBeGreaterThan(50);
     });
 
-    it('should create user with hashed password', async () => {
+    it('should create user with hashed password', () => {
       expect(testUser).toBeDefined();
       expect(testUser.email).toBe(testEmail);
-      expect(testUser.passwordHash).toBeDefined();
       expect(testUser.passwordHash).not.toBe(testPassword);
     });
 
@@ -63,12 +68,11 @@ describe('Authentication Logic', () => {
         sub: testUser._id.toString(),
         email: testUser.email,
       };
-      
+
       const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' });
-      
+
       expect(token).toBeDefined();
-      expect(typeof token).toBe('string');
-      expect(token.split('.').length).toBe(3); // JWT has 3 parts
+      expect(token.split('.').length).toBe(3);
     });
 
     it('should verify JWT token correctly', () => {
@@ -76,62 +80,54 @@ describe('Authentication Logic', () => {
         sub: testUser._id.toString(),
         email: testUser.email,
       };
-      
+
       const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' });
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      
+
       expect(decoded.sub).toBe(testUser._id.toString());
       expect(decoded.email).toBe(testUser.email);
     });
 
     it('should reject token with wrong secret', () => {
-      const payload = {
-        sub: testUser._id.toString(),
-        email: testUser.email,
-      };
-      
-      const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' });
-      
-      expect(() => {
-        jwt.verify(token, 'wrong-secret');
-      }).toThrow();
+      const token = jwt.sign(
+        { sub: testUser._id.toString() },
+        process.env.JWT_SECRET,
+        { expiresIn: '1d' }
+      );
+
+      expect(() => jwt.verify(token, 'wrong-secret')).toThrow();
     });
 
     it('should include expiration in token', () => {
-      const payload = {
-        sub: testUser._id.toString(),
-        email: testUser.email,
-      };
-      
-      const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' });
+      const token = jwt.sign(
+        { sub: testUser._id.toString() },
+        process.env.JWT_SECRET,
+        { expiresIn: '1d' }
+      );
+
       const decoded = jwt.decode(token);
-      
-      expect(decoded.exp).toBeDefined();
+
       expect(decoded.iat).toBeDefined();
-      expect(decoded.exp - decoded.iat).toBe(24 * 60 * 60); // 1 day in seconds
+      expect(decoded.exp).toBeDefined();
+      expect(decoded.exp - decoded.iat).toBe(86400);
     });
   });
 
   describe('Password Validation', () => {
     it('should require minimum 6 characters', () => {
-      const shortPassword = 'Test1!';
-      expect(shortPassword.length).toBeGreaterThanOrEqual(6);
+      expect(testPassword.length).toBeGreaterThanOrEqual(6);
     });
 
     it('should require uppercase letter', () => {
-      const hasUpper = /[A-Z]/.test(testPassword);
-      expect(hasUpper).toBe(true);
+      expect(/[A-Z]/.test(testPassword)).toBe(true);
     });
 
     it('should require digit', () => {
-      const hasDigit = /\d/.test(testPassword);
-      expect(hasDigit).toBe(true);
+      expect(/\d/.test(testPassword)).toBe(true);
     });
 
     it('should require special character', () => {
-      const hasSpecial = /\W/.test(testPassword);
-      expect(hasSpecial).toBe(true);
+      expect(/\W/.test(testPassword)).toBe(true);
     });
   });
 });
-

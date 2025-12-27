@@ -12,7 +12,7 @@ export default function PortfolioCard({ portfolio }) {
         <h3 className="text-lg font-semibold text-gray-900 line-clamp-1">
           {portfolio.name}
         </h3>
-        <div className="flex-shrink-0 ml-2">
+        <div className="shrink-0 ml-2">
           <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>

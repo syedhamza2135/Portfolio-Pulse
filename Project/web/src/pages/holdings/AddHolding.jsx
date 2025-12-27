@@ -26,6 +26,10 @@ export default function AddHolding() {
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: null }));
     }
+    // Clear API error when user makes changes
+    if (apiError) {
+      setApiError(null);
+    }
   };
 
   const validateForm = () => {
@@ -33,7 +37,7 @@ export default function AddHolding() {
 
     if (!formData.symbol.trim()) {
       newErrors.symbol = "Symbol is required";
-    } else if (!/^[A-Z]{1,5}$/i.test(formData.symbol)) {
+    } else if (!/^[A-Z]{1,5}$/i.test(formData.symbol.trim())) {
       newErrors.symbol = "Symbol must be 1-5 letters";
     }
 
@@ -64,25 +68,57 @@ export default function AddHolding() {
     setLoading(true);
 
     try {
+      // Build the payload matching backend expectations
       const payload = {
-        symbol: formData.symbol.toUpperCase(),
-        qty: parseFloat(formData.qty),
-        avgPrice: parseFloat(formData.avgPrice),
-        currentPrice: formData.currentPrice ? parseFloat(formData.currentPrice) : undefined
+        portfolioId,
+        ticker: formData.symbol.trim().toUpperCase(),
+        quantity: parseFloat(formData.qty),
+        averageCost: parseFloat(formData.avgPrice),
+        assetType: 'stock'
       };
 
-      await axios.post(`/holdings`, {
-        ...payload,
-        portfolioId,
-        ticker: payload.symbol,
-        quantity: payload.qty,
-        averageCost: payload.avgPrice,
-        assetType: 'stock' // Default to stock, can be enhanced later
-      });
+      // Only include currentPrice if provided
+      if (formData.currentPrice && parseFloat(formData.currentPrice) > 0) {
+        payload.currentPrice = parseFloat(formData.currentPrice);
+      }
+
+      // Debug log - remove in production
+      console.log('Sending payload:', payload);
+
+      const response = await axios.post(`/holdings`, payload);
+      
+      console.log('Success:', response.data);
+      
+      // Navigate back to portfolio page
       navigate(`/portfolios/${portfolioId}`);
+      
     } catch (err) {
       console.error("Failed to add holding:", err);
-      setApiError(err.response?.data?.message || "Failed to add holding");
+      
+      // Enhanced error handling
+      if (err.response) {
+        const { status, data } = err.response;
+        
+        console.log('Error response:', data);
+        console.log('Error status:', status);
+        
+        if (status === 400) {
+          // Validation error - show specific message
+          setApiError(data.error || data.message || "Invalid data. Please check your inputs.");
+        } else if (status === 401) {
+          setApiError("You must be logged in to add holdings.");
+        } else if (status === 404) {
+          setApiError("Portfolio not found. Please try again.");
+        } else if (status === 409) {
+          setApiError("This holding already exists in the portfolio.");
+        } else {
+          setApiError("Failed to add holding. Please try again.");
+        }
+      } else if (err.request) {
+        setApiError("No response from server. Please check your connection.");
+      } else {
+        setApiError(err.message || "An unexpected error occurred.");
+      }
     } finally {
       setLoading(false);
     }
@@ -114,7 +150,22 @@ export default function AddHolding() {
 
       {apiError && (
         <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-sm text-red-800">{apiError}</p>
+          <div className="flex items-start">
+            <svg 
+              className="w-5 h-5 text-red-600 mt-0.5 mr-3 shrink-0" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+                strokeWidth={2} 
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" 
+              />
+            </svg>
+            <p className="text-sm text-red-800">{apiError}</p>
+          </div>
         </div>
       )}
 
@@ -129,6 +180,7 @@ export default function AddHolding() {
             required
             helperText="Stock ticker symbol (e.g., AAPL)"
             className="uppercase"
+            maxLength={5}
           />
 
           <div>
@@ -156,8 +208,8 @@ export default function AddHolding() {
             onChange={handleChange}
             error={errors.qty}
             required
-            min="0"
-            step="1"
+            min="0.01"
+            step="0.01"
             helperText="Number of shares"
           />
 
@@ -169,7 +221,7 @@ export default function AddHolding() {
             onChange={handleChange}
             error={errors.avgPrice}
             required
-            min="0"
+            min="0.01"
             step="0.01"
             helperText="Average purchase price per share"
           />
@@ -187,9 +239,23 @@ export default function AddHolding() {
           helperText="Current market price per share"
         />
 
-        <div className="flex gap-3">
-          <Button type="submit" disabled={loading} className="flex-1">
-            {loading ? "Adding..." : "Add Holding"}
+        <div className="flex gap-3 pt-4">
+          <Button 
+            type="submit" 
+            disabled={loading} 
+            className="flex-1"
+          >
+            {loading ? (
+              <span className="flex items-center justify-center">
+                <svg className="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Adding...
+              </span>
+            ) : (
+              "Add Holding"
+            )}
           </Button>
           <Button 
             type="button" 
@@ -203,7 +269,7 @@ export default function AddHolding() {
       </form>
 
       {totalCost && (
-        <div className="mt-8 bg-gray-50 border border-gray-200 rounded-lg p-6">
+        <div className="mt-8 bg-linear-to-br from-gray-50 to-gray-100 border border-gray-200 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Preview</h3>
           <div className="space-y-3">
             <div className="flex justify-between items-center">
@@ -211,20 +277,25 @@ export default function AddHolding() {
               <span className="text-lg font-semibold text-gray-900">${totalCost}</span>
             </div>
             {currentValue && (
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium text-gray-600">Current Value:</span>
-                <span className="text-lg font-semibold text-gray-900">${currentValue}</span>
-              </div>
-            )}
-            {profitLoss && (
-              <div className="flex justify-between items-center pt-3 border-t border-gray-200">
-                <span className="text-sm font-medium text-gray-600">Profit/Loss:</span>
-                <span className={`text-lg font-semibold ${
-                  parseFloat(profitLoss) >= 0 ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  {parseFloat(profitLoss) >= 0 ? '+' : ''}${profitLoss}
-                </span>
-              </div>
+              <>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium text-gray-600">Current Value:</span>
+                  <span className="text-lg font-semibold text-gray-900">${currentValue}</span>
+                </div>
+                {profitLoss && (
+                  <div className="flex justify-between items-center pt-3 border-t border-gray-200">
+                    <span className="text-sm font-medium text-gray-600">Profit/Loss:</span>
+                    <span className={`text-lg font-semibold ${
+                      parseFloat(profitLoss) >= 0 ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {parseFloat(profitLoss) >= 0 ? '+' : ''}${profitLoss}
+                      <span className="text-sm ml-2">
+                        ({((parseFloat(profitLoss) / parseFloat(totalCost)) * 100).toFixed(2)}%)
+                      </span>
+                    </span>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
