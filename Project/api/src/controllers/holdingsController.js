@@ -1,6 +1,7 @@
 import { createHoldingSchema, updateHoldingSchema } from '../validation/holding.js';
 import Holding from '../models/holdings.js';
 import Portfolio from '../models/portfolio.js';
+import { recalculatePortfolioValues } from '../services/portfolioCalculation.js';
 
 // Helper function to verify portfolio ownership
 async function verifyPortfolioOwnership(portfolioId, userId) {
@@ -26,7 +27,7 @@ async function verifyHoldingOwnership(holdingId, userId) {
   return { holding, portfolio };
 }
 
-export async function getHoldings (req, res){
+export async function getHoldings(req, res) {
   try {
     const { portfolioId } = req.query;
     
@@ -52,12 +53,16 @@ export async function getHoldings (req, res){
   }
 }
 
-export async function getHoldingbyID(req, res){
+export async function getHoldingbyID(req, res) {
   try {
     const { holding } = await verifyHoldingOwnership(req.params.id, req.user.sub);
     res.json(holding);
   } catch (err) {
     console.error('Error fetching holding:', err);
+    
+    if (err.name === 'CastError') {
+      return res.status(400).json({ error: 'Invalid holding ID format' });
+    }
     
     if (err.message === 'Holding not found') {
       return res.status(404).json({ error: err.message });
@@ -71,7 +76,7 @@ export async function getHoldingbyID(req, res){
   }
 }
 
-export async function createHolding(req, res){
+export async function createHolding(req, res) {
   try {
     // Validate request body
     const { error, value } = createHoldingSchema.validate(req.body);
@@ -97,6 +102,14 @@ export async function createHolding(req, res){
     // Create holding
     const holding = await Holding.create(value);
     
+    // Recalculate portfolio values
+    try {
+      await recalculatePortfolioValues(value.portfolioId);
+    } catch (calcError) {
+      console.error('Error recalculating portfolio after creating holding:', calcError);
+      // Don't fail the request, just log the error
+    }
+    
     res.status(201).json(holding);
   } catch (err) {
     console.error('Error creating holding:', err);
@@ -113,12 +126,22 @@ export async function createHolding(req, res){
   }
 }
 
-export async function updateHolding(req, res){
+export async function updateHolding(req, res) {
   try {
     // Validate request body
     const { error, value } = updateHoldingSchema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.message });
+    }
+
+    // Prevent portfolioId changes via update endpoint
+    if (value.portfolioId !== undefined) {
+      return res.status(400).json({ error: 'Cannot change portfolioId. Delete and recreate the holding in the desired portfolio.' });
+    }
+
+    // Prevent ticker changes via update endpoint
+    if (value.ticker !== undefined) {
+      return res.status(400).json({ error: 'Cannot change ticker. Delete and recreate the holding with the new ticker.' });
     }
 
     // Verify ownership
@@ -127,11 +150,29 @@ export async function updateHolding(req, res){
     // Update holding
     Object.assign(holding, value);
     holding.updatedAt = new Date();
+    
+    // If currentPrice was updated, update lastPriceUpdate
+    if (value.currentPrice !== undefined) {
+      holding.lastPriceUpdate = new Date();
+    }
+    
     await holding.save();
+    
+    // Recalculate portfolio values
+    try {
+      await recalculatePortfolioValues(holding.portfolioId);
+    } catch (calcError) {
+      console.error('Error recalculating portfolio after updating holding:', calcError);
+      // Don't fail the request, just log the error
+    }
     
     res.json(holding);
   } catch (err) {
     console.error('Error updating holding:', err);
+    
+    if (err.name === 'CastError') {
+      return res.status(400).json({ error: 'Invalid holding ID format' });
+    }
     
     if (err.message === 'Holding not found') {
       return res.status(404).json({ error: err.message });
@@ -149,17 +190,31 @@ export async function updateHolding(req, res){
   }
 }
 
-export async function deleteHolding(req, res){
+export async function deleteHolding(req, res) {
   try {
     // Verify ownership
     const { holding } = await verifyHoldingOwnership(req.params.id, req.user.sub);
+    
+    const portfolioId = holding.portfolioId;
 
     // Delete holding
     await holding.deleteOne();
     
+    // Recalculate portfolio values
+    try {
+      await recalculatePortfolioValues(portfolioId);
+    } catch (calcError) {
+      console.error('Error recalculating portfolio after deleting holding:', calcError);
+      // Don't fail the request, just log the error
+    }
+    
     res.status(204).send();
   } catch (err) {
     console.error('Error deleting holding:', err);
+    
+    if (err.name === 'CastError') {
+      return res.status(400).json({ error: 'Invalid holding ID format' });
+    }
     
     if (err.message === 'Holding not found') {
       return res.status(404).json({ error: err.message });

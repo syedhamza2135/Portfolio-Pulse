@@ -10,4 +10,7 @@ const holdingSchema = new mongoose.Schema({
     lastPriceUpdate: { type: Date }
 }, { timestamps: true });
 
+// Compound index to prevent duplicate holdings (same ticker in same portfolio)
+holdingSchema.index({ portfolioId: 1, ticker: 1 }, { unique: true });
+
 export default mongoose.model('Holding', holdingSchema);

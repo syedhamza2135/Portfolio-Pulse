@@ -1,15 +1,21 @@
 export default {
   testEnvironment: 'node',
+  setupFilesAfterEnv: ['./src/__tests__/jest.setup.mjs'],
   transform: {},
+  maxWorkers: 1,
+
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
+
   testMatch: ['**/__tests__/**/*.js', '**/?(*.)+(spec|test).js'],
+
   collectCoverageFrom: [
     'src/**/*.js',
     '!src/index.js',
     '!src/config/**',
   ],
+
   coverageThreshold: {
     global: {
       branches: 50,
@@ -17,6 +23,5 @@ export default {
       lines: 60,
       statements: 60,
     },
-  },
+  }
 };
-

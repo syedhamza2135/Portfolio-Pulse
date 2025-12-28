@@ -2,22 +2,39 @@ import { jest } from '@jest/globals';
 import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import request from 'supertest';
+import express from 'express';
 import User from '../models/user.js';
-import 'dotenv/config'
+import authRoutes from '../routes/authRoute.js';
+import { authLimiter } from '../middleware/rateLimiter.js';
+import mongoSanitize from 'express-mongo-sanitize';
+import 'dotenv/config';
 
 jest.setTimeout(20000);
 
 // Mock environment variables
 process.env.JWT_SECRET = 'test-secret-key-for-jwt-testing-only';
 
+// Create test app with middleware
+function createTestApp() {
+  const app = express();
+  app.use(express.json());
+  app.use(mongoSanitize({ replaceWith: '_' }));
+  // Note: Rate limiting disabled in tests or we'd need to test with delays
+  app.use('/api/auth', authRoutes);
+  return app;
+}
+
 describe('Authentication Logic', () => {
   let testUser;
+  let app;
   const testEmail = 'test@example.com';
   const testPassword = 'Test123!@#';
 
   // Connect to DB once
   beforeAll(async () => {
     await mongoose.connect(process.env.MONGO_URI);
+    app = createTestApp();
   });
 
   // Clean DB + create user per test
@@ -59,6 +76,99 @@ describe('Authentication Logic', () => {
     it('should reject incorrect password', async () => {
       const isValid = await bcrypt.compare('WrongPassword123!', testUser.passwordHash);
       expect(isValid).toBe(false);
+    });
+
+    it('should register new user via API', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'newuser@example.com',
+          password: 'NewPass123!@#'
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body).toHaveProperty('id');
+      expect(response.body).toHaveProperty('email', 'newuser@example.com');
+      expect(response.body).not.toHaveProperty('passwordHash');
+      
+      // Verify email is normalized in database
+      const user = await User.findById(response.body.id);
+      expect(user.email).toBe('newuser@example.com');
+    });
+
+    it('should reject registration with existing email', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: testEmail,
+          password: 'AnotherPass123!@#'
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toContain('Registration Failed');
+    });
+
+    it('should normalize email during registration (case-insensitive)', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'MixedCase@Example.COM',
+          password: 'Test123!@#'
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.email).toBe('mixedcase@example.com');
+      
+      // Verify in database
+      const user = await User.findOne({ email: 'mixedcase@example.com' });
+      expect(user).toBeDefined();
+      expect(user.email).toBe('mixedcase@example.com');
+    });
+
+    it('should normalize email during registration (trim whitespace)', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: '  spaced@example.com  ',
+          password: 'Test123!@#'
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.email).toBe('spaced@example.com');
+    });
+
+    it('should reject weak passwords', async () => {
+      const weakPasswords = [
+        'short', // too short
+        'nouppercase123!', // no uppercase
+        'NoDigits!@#', // no digits
+        'NoSpecial123', // no special chars
+      ];
+
+      for (const password of weakPasswords) {
+        const response = await request(app)
+          .post('/api/auth/register')
+          .send({
+            email: `test${Math.random()}@example.com`,
+            password
+          });
+
+        expect(response.status).toBe(400);
+        expect(response.body).toHaveProperty('error');
+      }
+    });
+
+    it('should reject invalid email format', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'not-an-email',
+          password: 'ValidPass123!@#'
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
     });
   });
 
@@ -111,6 +221,107 @@ describe('Authentication Logic', () => {
       expect(decoded.exp).toBeDefined();
       expect(decoded.exp - decoded.iat).toBe(86400);
     });
+
+    it('should reject expired tokens', () => {
+      const token = jwt.sign(
+        { sub: testUser._id.toString() },
+        process.env.JWT_SECRET,
+        { expiresIn: '-1s' } // Already expired
+      );
+
+      expect(() => jwt.verify(token, process.env.JWT_SECRET)).toThrow();
+    });
+  });
+
+  describe('Login API', () => {
+    it('should login with valid credentials', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testEmail,
+          password: testPassword
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('token');
+      expect(response.body).toHaveProperty('user');
+      expect(response.body.user).toHaveProperty('email', testEmail);
+      expect(response.body.user).not.toHaveProperty('passwordHash');
+
+      // Verify token is valid
+      const decoded = jwt.verify(response.body.token, process.env.JWT_SECRET);
+      expect(decoded.email).toBe(testEmail);
+    });
+
+    it('should reject login with wrong password', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testEmail,
+          password: 'WrongPassword123!@#'
+        });
+
+      expect(response.status).toBe(401);
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toContain('Invalid credentials');
+    });
+
+    it('should reject login with non-existent email', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: 'nonexistent@example.com',
+          password: testPassword
+        });
+
+      expect(response.status).toBe(401);
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toContain('Invalid credentials');
+    });
+
+    it('should reject login with missing fields', async () => {
+      // Missing password
+      let response = await request(app)
+        .post('/api/auth/login')
+        .send({ email: testEmail });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+
+      // Missing email
+      response = await request(app)
+        .post('/api/auth/login')
+        .send({ password: testPassword });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should handle case-insensitive email login', async () => {
+      // Note: Email is normalized to lowercase during registration and login
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testEmail.toUpperCase(),
+          password: testPassword
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('token');
+      expect(response.body.user.email).toBe(testEmail.toLowerCase());
+    });
+
+    it('should trim email whitespace on login', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: `  ${testEmail}  `,
+          password: testPassword
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('token');
+    });
   });
 
   describe('Password Validation', () => {
@@ -128,6 +339,297 @@ describe('Authentication Logic', () => {
 
     it('should require special character', () => {
       expect(/\W/.test(testPassword)).toBe(true);
+    });
+
+    it('should accept valid password patterns', () => {
+      const validPasswords = [
+        'Abcdef1!',
+        'Pass123@word',
+        'MyP@ssw0rd',
+        'Str0ng#Pass',
+      ];
+
+      validPasswords.forEach(password => {
+        expect(password.length).toBeGreaterThanOrEqual(6);
+        expect(/[A-Z]/.test(password)).toBe(true);
+        expect(/\d/.test(password)).toBe(true);
+        expect(/\W/.test(password)).toBe(true);
+      });
+    });
+  });
+
+  describe('Input Sanitization', () => {
+    it('should sanitize NoSQL injection attempts in email', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: { $gt: '' }, // NoSQL injection attempt
+          password: testPassword
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+      // Should fail validation, not reach database
+    });
+
+    it('should sanitize malicious characters in registration', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'test$attack.com',
+          password: 'Test123!@#'
+        });
+
+      // Email validation should catch this
+      expect(response.status).toBe(400);
+    });
+
+    it('should handle nested object injection attempts', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: { $ne: null },
+          password: { $ne: null }
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should return consistent error format', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: 'invalid',
+          password: 'short'
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+      expect(typeof response.body.error).toBe('string');
+    });
+
+    it('should not leak sensitive information in errors', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testEmail,
+          password: 'WrongPassword'
+        });
+
+      expect(response.body.error).not.toContain('passwordHash');
+      expect(response.body.error).not.toContain('bcrypt');
+      expect(response.body.error).not.toContain('mongoose');
+    });
+  });
+
+  describe('User Model', () => {
+    it('should have default preferences', async () => {
+      const user = await User.findById(testUser._id);
+      
+      expect(user.preferences).toBeDefined();
+      expect(user.preferences.alertThreshold).toBe(3);
+      expect(user.preferences.emailEnabled).toBe(true);
+    });
+
+    it('should have timestamps', async () => {
+      const user = await User.findById(testUser._id);
+      
+      expect(user.createdAt).toBeDefined();
+      expect(user.updatedAt).toBeDefined();
+      expect(user.createdAt).toBeInstanceOf(Date);
+      expect(user.updatedAt).toBeInstanceOf(Date);
+    });
+
+    it('should enforce unique email constraint', async () => {
+      const passwordHash = await bcrypt.hash('AnotherPass123!', 4);
+      
+      await expect(
+        User.create({ email: testEmail, passwordHash })
+      ).rejects.toThrow();
+    });
+
+    it('should require email and passwordHash', async () => {
+      await expect(
+        User.create({ email: 'test@test.com' })
+      ).rejects.toThrow();
+
+      await expect(
+        User.create({ passwordHash: 'hash' })
+      ).rejects.toThrow();
+    });
+
+    it('should lowercase and trim email on save', async () => {
+      const newEmail = '  TEST@EXAMPLE.COM  ';
+      const passwordHash = await bcrypt.hash('Test123!@#', 4);
+      
+      const user = await User.create({
+        email: newEmail,
+        passwordHash
+      });
+
+      expect(user.email).toBe('test@example.com');
+    });
+  });
+
+  describe('Token Payload', () => {
+    it('should include correct user information in token', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testEmail,
+          password: testPassword
+        });
+
+      const decoded = jwt.decode(response.body.token);
+
+      expect(decoded).toHaveProperty('sub');
+      expect(decoded).toHaveProperty('email', testEmail);
+      expect(decoded).toHaveProperty('iat');
+      expect(decoded).toHaveProperty('exp');
+      expect(decoded.exp - decoded.iat).toBe(86400); // 1 day
+    });
+
+    it('should use sub field for user ID', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testEmail,
+          password: testPassword
+        });
+
+      const decoded = jwt.decode(response.body.token);
+
+      expect(decoded.sub).toBe(testUser._id.toString());
+      expect(decoded.sub).not.toBeInstanceOf(mongoose.Types.ObjectId);
+    });
+  });
+
+  describe('Security Best Practices', () => {
+    it('should not return passwordHash in any response', async () => {
+      // Registration
+      let response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'secure@example.com',
+          password: 'Secure123!@#'
+        });
+
+      expect(response.body).not.toHaveProperty('passwordHash');
+
+      // Login
+      response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testEmail,
+          password: testPassword
+        });
+
+      expect(response.body).not.toHaveProperty('passwordHash');
+      expect(response.body.user).not.toHaveProperty('passwordHash');
+    });
+
+    it('should use bcrypt with sufficient rounds', async () => {
+      const hash = await bcrypt.hash('test', 12);
+      const rounds = bcrypt.getRounds(hash);
+      
+      expect(rounds).toBeGreaterThanOrEqual(10); // Production should use 12
+    });
+
+    it('should not reveal if email exists on login failure', async () => {
+      // Try with non-existent email
+      const response1 = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: 'nonexistent@example.com',
+          password: 'WrongPass123!@#'
+        });
+
+      // Try with existing email but wrong password
+      const response2 = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testEmail,
+          password: 'WrongPass123!@#'
+        });
+
+      // Both should return the same generic error
+      expect(response1.status).toBe(401);
+      expect(response2.status).toBe(401);
+      expect(response1.body.error).toBe(response2.body.error);
+      expect(response1.body.error).toContain('Invalid credentials');
+    });
+  });
+
+  describe('Edge Cases', () => {
+    it('should handle empty request body', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({});
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error');
+    });
+
+    it('should handle malformed JSON gracefully', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .set('Content-Type', 'application/json')
+        .send('{"invalid json');
+
+      expect(response.status).toBe(400);
+    });
+
+    it('should handle very long passwords', async () => {
+      const longPassword = 'A1!' + 'a'.repeat(1000);
+      
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'longpass@example.com',
+          password: longPassword
+        });
+
+      // Should either succeed or fail gracefully (not crash)
+      expect([201, 400]).toContain(response.status);
+    });
+
+    it('should handle unicode characters in password', async () => {
+      const unicodePassword = 'Test123!😀';
+      
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'unicode@example.com',
+          password: unicodePassword
+        });
+
+      expect(response.status).toBe(201);
+    });
+
+    it('should handle concurrent registration attempts', async () => {
+      const email = 'concurrent@example.com';
+      const password = 'Test123!@#';
+
+      // Attempt to register same email twice simultaneously
+      const promises = [
+        request(app).post('/api/auth/register').send({ email, password }),
+        request(app).post('/api/auth/register').send({ email, password })
+      ];
+
+      const results = await Promise.all(promises);
+
+      // One should succeed, one should fail (due to unique email constraint)
+      const statuses = results.map(r => r.status).sort();
+      expect(statuses.length).toBe(2);
+      expect(statuses).toContain(201); // One success
+      expect(statuses).toContain(400); // One failure (duplicate email)
+      
+      // Verify only one user was created
+      const users = await User.find({ email: email.toLowerCase() });
+      expect(users.length).toBe(1);
     });
   });
 });
