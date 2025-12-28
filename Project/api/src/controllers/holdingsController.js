@@ -134,16 +134,6 @@ export async function updateHolding(req, res) {
       return res.status(400).json({ error: error.message });
     }
 
-    // Prevent portfolioId changes via update endpoint
-    if (value.portfolioId !== undefined) {
-      return res.status(400).json({ error: 'Cannot change portfolioId. Delete and recreate the holding in the desired portfolio.' });
-    }
-
-    // Prevent ticker changes via update endpoint
-    if (value.ticker !== undefined) {
-      return res.status(400).json({ error: 'Cannot change ticker. Delete and recreate the holding with the new ticker.' });
-    }
-
     // Verify ownership
     const { holding } = await verifyHoldingOwnership(req.params.id, req.user.sub);
 

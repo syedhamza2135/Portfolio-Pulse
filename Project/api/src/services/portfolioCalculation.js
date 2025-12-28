@@ -40,10 +40,6 @@ export async function recalculatePortfolioValues(portfolioId) {
             { new: true }
         );
         
-        if (!updatedPortfolio) {
-            throw new Error('Portfolio not found during recalculation');
-        }
-        
         return {
             totalValue: updatedPortfolio.totalValue,
             dailyChange: updatedPortfolio.dailyChange,

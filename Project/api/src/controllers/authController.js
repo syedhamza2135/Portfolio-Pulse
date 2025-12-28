@@ -24,9 +24,14 @@ export async function registerUser (req, res){
         }
 
         const passwordHash = await bcrypt.hash(value.password, 12);
-        const user = await User.create({email: normalizedEmail, passwordHash});
-
-        return res.status(201).json({id: user.id, email: user.email});
+        try {
+            const user = await User.create({email: normalizedEmail, passwordHash});
+            return res.status(201).json({id: user.id, email: user.email});
+        } catch (createError) {
+            if (createError.code === 11000) {
+                return res.status(400).json({error: 'Registration Failed' });
+            } throw createError;
+        }
     } catch (err) {
         console.error('Error registering user:', err);
         

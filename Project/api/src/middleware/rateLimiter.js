@@ -11,8 +11,8 @@ export const authLimiter = rateLimit({
   skipFailedRequests: false, // Count failed requests
   handler: (req, res) => {
     const retryAfter = req.rateLimit?.resetTime 
-      ? Math.ceil((req.rateLimit.resetTime - Date.now()) / 1000)
-      : 900; // Default to 15 minutes in seconds
+  ? Math.ceil((new Date(req.rateLimit.resetTime).getTime() - Date.now()) / 1000)
+  : 900;
     res.status(429).json({
       error: 'Too many attempts. Please try again in 15 minutes.',
       retryAfter
@@ -29,8 +29,8 @@ export const apiLimiter = rateLimit({
   legacyHeaders: false,
   handler: (req, res) => {
     const retryAfter = req.rateLimit?.resetTime 
-      ? Math.ceil((req.rateLimit.resetTime - Date.now()) / 1000)
-      : 60; // Default to 1 minute in seconds
+  ? Math.ceil((new Date(req.rateLimit.resetTime).getTime() - Date.now()) / 1000)
+  : 60;
     res.status(429).json({
       error: 'Too many requests. Please slow down.',
       retryAfter
@@ -48,8 +48,8 @@ export const strictLimiter = rateLimit({
   skipSuccessfulRequests: true, // Only count failed attempts
   handler: (req, res) => {
     const retryAfter = req.rateLimit?.resetTime 
-      ? Math.ceil((req.rateLimit.resetTime - Date.now()) / 1000)
-      : 3600; // Default to 1 hour in seconds
+  ? Math.ceil((new Date(req.rateLimit.resetTime).getTime() - Date.now()) / 1000)
+  : 3600;
     res.status(429).json({
       error: 'Too many failed attempts. Please try again in 1 hour.',
       retryAfter

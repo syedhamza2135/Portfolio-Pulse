@@ -10,7 +10,8 @@ router.get('/me', requireAuth, async (req, res) => {
         const user = await User.findById(id).select('email createdAt');
         
         if (!user) {
-            return res.status(404).json({ error: 'User not found' });
+            console.error('JWT valid but user not found:', id);
+            return res.status(500).json({ error: 'User account not found. Please re-login.' });
         }
         
         res.json(user);

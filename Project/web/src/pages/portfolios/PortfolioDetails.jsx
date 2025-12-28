@@ -1,14 +1,14 @@
 import { Link, useParams, useLocation } from "react-router-dom";
-import useFetch from "../../hooks/useFetch";
-import HoldingRow from "../../components/portfolio/HoldingRow";
-import Button from "../../components/ui/Button";
+import useAutoRefresh from '../../hooks/useAutoRefresh.js'
+import HoldingRow from "../../components/portfolio/HoldingRow.jsx";
+import Button from "../../components/ui/Button.jsx";
 
 export default function PortfolioDetails() {
   const { id } = useParams();
   const location = useLocation();
   const successMessage = location.state?.message;
   
-  const { data: portfolio, loading, error, refetch } = useFetch(`/portfolios/${id}`);
+  const { data: portfolio, loading, error, refetch } = useAutoRefresh(id, 30000);;
 
   if (loading) {
     return (

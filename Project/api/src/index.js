@@ -11,6 +11,8 @@ import authRoutes from './routes/authRoute.js';
 import meRoutes from './routes/me.js';
 import portfolioRoutes from './routes/portfolioRoute.js';
 import holdingRoutes from './routes/holdingsRoute.js';
+import priceRoutes from './routes/priceRoute.js';
+import { startPriceUpdateJob } from './jobs/priceUpdateJob.js';
 
 dotenv.config();
 
@@ -48,11 +50,15 @@ app.use('/api/', apiLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 
+//Jobs
+startPriceUpdateJob();
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api', meRoutes);
 app.use('/api/portfolios', portfolioRoutes);
 app.use('/api/holdings', holdingRoutes);
+app.use('/api/prices', priceRoutes);
 
 // Health check endpoint (no rate limiting)
 app.get('/health', async (req, res) => {
