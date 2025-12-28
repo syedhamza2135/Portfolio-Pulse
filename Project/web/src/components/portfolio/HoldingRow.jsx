@@ -1,4 +1,6 @@
-export default function HoldingRow({ holding }) {
+import { Link } from "react-router-dom";
+
+export default function HoldingRow({ holding, portfolioId }) {
   // Keep calculations as numbers, format only for display
   const currentValue = holding.currentPrice 
     ? holding.quantity * holding.currentPrice
@@ -76,9 +78,13 @@ export default function HoldingRow({ holding }) {
       </td>
       
       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-        <button className="text-blue-600 hover:text-blue-900">
+        <Link 
+          to={`/holdings/${holding._id}/edit`}
+          state={{ portfolioId }}
+          className="text-blue-600 hover:text-blue-900 transition-colors"
+        >
           Edit
-        </button>
+        </Link>
       </td>
     </tr>
   );

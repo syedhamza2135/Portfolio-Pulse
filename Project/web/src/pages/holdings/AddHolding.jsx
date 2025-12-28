@@ -1,32 +1,47 @@
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import axios from "../../lib/axios";
 import Input from "../../components/ui/Input";
 import Button from "../../components/ui/Button";
 
 export default function AddHolding() {
   const navigate = useNavigate();
-  const { id: portfolioId } = useParams();
+  const location = useLocation();
+  
+  // Get portfolioId from location state (passed from PortfolioDetails)
+  const portfolioId = location.state?.portfolioId;
   
   const [formData, setFormData] = useState({ 
-    symbol: "", 
-    qty: "", 
-    avgPrice: "",
+    ticker: "", 
+    quantity: "", 
+    averageCost: "",
     currentPrice: ""
   });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [apiError, setApiError] = useState(null);
 
+  // Redirect if no portfolioId
+  if (!portfolioId) {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+          <p className="text-yellow-800">Invalid access. Please select a portfolio first.</p>
+        </div>
+        <Button variant="secondary" onClick={() => navigate('/portfolios')}>
+          Go to Portfolios
+        </Button>
+      </div>
+    );
+  }
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     
-    // Clear field error when user types
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: null }));
     }
-    // Clear API error when user makes changes
     if (apiError) {
       setApiError(null);
     }
@@ -35,18 +50,18 @@ export default function AddHolding() {
   const validateForm = () => {
     const newErrors = {};
 
-    if (!formData.symbol.trim()) {
-      newErrors.symbol = "Symbol is required";
-    } else if (!/^[A-Z]{1,5}$/i.test(formData.symbol.trim())) {
-      newErrors.symbol = "Symbol must be 1-5 letters";
+    if (!formData.ticker.trim()) {
+      newErrors.ticker = "Ticker symbol is required";
+    } else if (!/^[A-Z]{1,10}$/i.test(formData.ticker.trim())) {
+      newErrors.ticker = "Ticker must be 1-10 letters";
     }
 
-    if (!formData.qty || parseFloat(formData.qty) <= 0) {
-      newErrors.qty = "Quantity must be greater than 0";
+    if (!formData.quantity || parseFloat(formData.quantity) <= 0) {
+      newErrors.quantity = "Quantity must be greater than 0";
     }
 
-    if (!formData.avgPrice || parseFloat(formData.avgPrice) <= 0) {
-      newErrors.avgPrice = "Average price must be greater than 0";
+    if (!formData.averageCost || parseFloat(formData.averageCost) <= 0) {
+      newErrors.averageCost = "Average cost must be greater than 0";
     }
 
     if (formData.currentPrice && parseFloat(formData.currentPrice) < 0) {
@@ -68,49 +83,38 @@ export default function AddHolding() {
     setLoading(true);
 
     try {
-      // Build the payload matching backend expectations
       const payload = {
         portfolioId,
-        ticker: formData.symbol.trim().toUpperCase(),
-        quantity: parseFloat(formData.qty),
-        averageCost: parseFloat(formData.avgPrice),
+        ticker: formData.ticker.trim().toUpperCase(),
+        quantity: parseFloat(formData.quantity),
+        averageCost: parseFloat(formData.averageCost),
         assetType: 'stock'
       };
 
-      // Only include currentPrice if provided
       if (formData.currentPrice && parseFloat(formData.currentPrice) > 0) {
         payload.currentPrice = parseFloat(formData.currentPrice);
       }
 
-      // Debug log - remove in production
-      console.log('Sending payload:', payload);
-
-      const response = await axios.post(`/holdings`, payload);
+      await axios.post('/holdings', payload);
       
-      console.log('Success:', response.data);
-      
-      // Navigate back to portfolio page
-      navigate(`/portfolios/${portfolioId}`);
+      navigate(`/portfolios/${portfolioId}`, {
+        state: { message: 'Holding added successfully!' }
+      });
       
     } catch (err) {
       console.error("Failed to add holding:", err);
       
-      // Enhanced error handling
       if (err.response) {
         const { status, data } = err.response;
         
-        console.log('Error response:', data);
-        console.log('Error status:', status);
-        
         if (status === 400) {
-          // Validation error - show specific message
-          setApiError(data.error || data.message || "Invalid data. Please check your inputs.");
+          setApiError(data.error || "Invalid data. Please check your inputs.");
         } else if (status === 401) {
           setApiError("You must be logged in to add holdings.");
         } else if (status === 404) {
           setApiError("Portfolio not found. Please try again.");
         } else if (status === 409) {
-          setApiError("This holding already exists in the portfolio.");
+          setApiError("This ticker already exists in your portfolio. Try editing it instead.");
         } else {
           setApiError("Failed to add holding. Please try again.");
         }
@@ -129,12 +133,12 @@ export default function AddHolding() {
   };
 
   // Calculate preview values
-  const totalCost = formData.qty && formData.avgPrice 
-    ? (parseFloat(formData.qty) * parseFloat(formData.avgPrice)).toFixed(2)
+  const totalCost = formData.quantity && formData.averageCost 
+    ? (parseFloat(formData.quantity) * parseFloat(formData.averageCost)).toFixed(2)
     : null;
 
-  const currentValue = formData.qty && formData.currentPrice
-    ? (parseFloat(formData.qty) * parseFloat(formData.currentPrice)).toFixed(2)
+  const currentValue = formData.quantity && formData.currentPrice
+    ? (parseFloat(formData.quantity) * parseFloat(formData.currentPrice)).toFixed(2)
     : null;
 
   const profitLoss = totalCost && currentValue
@@ -172,15 +176,15 @@ export default function AddHolding() {
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Input
-            label="Symbol"
-            name="symbol"
-            value={formData.symbol}
+            label="Ticker Symbol"
+            name="ticker"
+            value={formData.ticker}
             onChange={handleChange}
-            error={errors.symbol}
+            error={errors.ticker}
             required
-            helperText="Stock ticker symbol (e.g., AAPL)"
+            helperText="Stock ticker (e.g., AAPL, MSFT)"
             className="uppercase"
-            maxLength={5}
+            maxLength={10}
           />
 
           <div>
@@ -202,11 +206,11 @@ export default function AddHolding() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Input
             label="Quantity"
-            name="qty"
+            name="quantity"
             type="number"
-            value={formData.qty}
+            value={formData.quantity}
             onChange={handleChange}
-            error={errors.qty}
+            error={errors.quantity}
             required
             min="0.01"
             step="0.01"
@@ -214,12 +218,12 @@ export default function AddHolding() {
           />
 
           <Input
-            label="Average Price"
-            name="avgPrice"
+            label="Average Cost"
+            name="averageCost"
             type="number"
-            value={formData.avgPrice}
+            value={formData.averageCost}
             onChange={handleChange}
-            error={errors.avgPrice}
+            error={errors.averageCost}
             required
             min="0.01"
             step="0.01"
@@ -269,7 +273,7 @@ export default function AddHolding() {
       </form>
 
       {totalCost && (
-        <div className="mt-8 bg-linear-to-br from-gray-50 to-gray-100 border border-gray-200 rounded-lg p-6">
+        <div className="mt-8 bg-gradient-to-br from-gray-50 to-gray-100 border border-gray-200 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Preview</h3>
           <div className="space-y-3">
             <div className="flex justify-between items-center">

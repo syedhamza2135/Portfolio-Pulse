@@ -1,15 +1,14 @@
+import { Routes, Route, Navigate } from "react-router-dom";
 import PublicRoute from "../components/layout/PublicRoute.jsx";
+import ProtectedRoute from "../components/layout/ProtectedRoute.jsx";
 import Login from "../pages/auth/Login.jsx";
 import Register from "../pages/auth/Register.jsx";
 import Dashboard from "../pages/dashboard/Dashboard.jsx";
 import PortfolioList from "../pages/portfolios/PortfolioList.jsx";
 import PortfolioDetails from "../pages/portfolios/PortfolioDetails.jsx";
-import AddHolding from "../pages/holdings/AddHolding";
 import CreatePortfolio from "../pages/portfolios/CreatePortfolio.jsx";
-import ProtectedRoute from "../components/layout/ProtectedRoute.jsx";
-
-import { Routes, Route, Navigate } from "react-router-dom";
-
+import AddHolding from "../pages/holdings/AddHolding";
+import EditHolding from "../pages/holdings/EditHolding";
 
 export default function AppRouter() {
   return (
@@ -44,11 +43,21 @@ export default function AppRouter() {
           </ProtectedRoute>
         }
       />
+      
+      {/* Portfolio routes */}
       <Route
         path="/portfolios"
         element={
           <ProtectedRoute>
             <PortfolioList />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portfolios/create"
+        element={
+          <ProtectedRoute>
+            <CreatePortfolio />
           </ProtectedRoute>
         }
       />
@@ -60,8 +69,10 @@ export default function AppRouter() {
           </ProtectedRoute>
         }
       />
+      
+      {/* Holding routes - using /holdings/:id structure */}
       <Route
-        path="/portfolios/:id/add"
+        path="/holdings/add"
         element={
           <ProtectedRoute>
             <AddHolding />
@@ -69,10 +80,10 @@ export default function AppRouter() {
         }
       />
       <Route
-        path="/portfolios/create"
+        path="/holdings/:id/edit"
         element={
           <ProtectedRoute>
-            <CreatePortfolio />
+            <EditHolding />
           </ProtectedRoute>
         }
       />

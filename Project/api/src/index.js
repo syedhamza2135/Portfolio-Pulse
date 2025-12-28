@@ -5,19 +5,22 @@ import helmet from 'helmet';
 import cors from 'cors';
 import passport from 'passport';
 import setupPassport from './config/passport.js';
-import authRoutes from './routes/auth.js';
+import authRoutes from './routes/authRoute.js';
 import meRoutes from './routes/me.js';
-import portfolioRoutes from './routes/portfolio.js';
-import holdingRoutes from './routes/holdings.js';
+import portfolioRoutes from './routes/portfolioRoute.js';
+import holdingRoutes from './routes/holdingsRoute.js';
 
 dotenv.config();
 
 const app = express();
+
+setupPassport(passport);
+
 app.use(express.json());
 app.use(helmet());
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(passport.initialize());
-setupPassport(passport);
+
 app.use('/api/auth', authRoutes);
 app.use('/api', meRoutes);
 app.use('/api/portfolios', portfolioRoutes);

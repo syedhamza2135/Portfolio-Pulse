@@ -1,18 +1,14 @@
-import { Router } from "express";
 import Joi from 'joi';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import passport from 'passport';
 import User from "../models/user.js";
 
-const router = Router();
-
 const registerSchema = Joi.object({
     email: Joi.string().email().required(),
     password: Joi.string().min(6).pattern(/[A-Z]/).pattern(/\d/).pattern(/\W/).required()
 });
-
-router.post('/register', async (req, res) => {
+export async function registerUser (req, res){
     const { error, value } = registerSchema.validate(req.body);
     if (error){
         return res.status(400).json({error: error.message});
@@ -27,14 +23,14 @@ router.post('/register', async (req, res) => {
     const user = await User.create({email: value.email, passwordHash});
 
     return res.status(201).json({id: user.id, email: user.email});
-});
+}
+
 
 const loginSchema = Joi.object({
     email: Joi.string().email().required(),
     password: Joi.string().required()
 });
-
-router.post('/login', async (req, res, next) => {
+export async function loginUser (req, res, next){
     const {error, value} = loginSchema.validate(req.body);
     if(error){
         return res.status(400).json({ error: error.message });
@@ -56,6 +52,4 @@ router.post('/login', async (req, res, next) => {
             }
         });
     })(req, res, next);
-});
-
-export default router;
+}

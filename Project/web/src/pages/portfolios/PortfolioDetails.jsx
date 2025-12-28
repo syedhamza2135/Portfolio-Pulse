@@ -11,28 +11,6 @@ export default function PortfolioDetails() {
   const { data: portfolio, loading, error, refetch } = useFetch(`/portfolios/${id}`);
 
   if (loading) {
-    return <p>Loading portfolio...</p>;
-  }
-
-  if (error) {
-    return (
-      <div>
-        <p>Error: {error}</p>
-        <Button onClick={refetch}>Try Again</Button>
-      </div>
-    );
-  }
-
-  if (!portfolio) {
-    return (
-      <div>
-        <p>Portfolio not found</p>
-        <Link to="/portfolios">Back to Portfolios</Link>
-      </div>
-    );
-  }
-
-  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -92,7 +70,7 @@ export default function PortfolioDetails() {
               <p className="text-gray-600">{portfolio.description}</p>
             )}
           </div>
-          <Link to={`/portfolios/${id}/add`}>
+          <Link to={`/holdings/add`} state={{ portfolioId: id }}>
             <Button>
               <svg className="w-5 h-5 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -135,7 +113,11 @@ export default function PortfolioDetails() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {portfolio.holdings.map(holding => (
-                    <HoldingRow key={holding._id || holding.id} holding={holding} />
+                    <HoldingRow 
+                      key={holding._id || holding.id} 
+                      holding={holding}
+                      portfolioId={id}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -179,7 +161,7 @@ export default function PortfolioDetails() {
             <p className="text-gray-600 mb-6">
               Get started by adding your first holding to this portfolio.
             </p>
-            <Link to={`/portfolios/${id}/add`}>
+            <Link to={`/holdings/add`} state={{ portfolioId: id }}>
               <Button>
                 Add Your First Holding
               </Button>

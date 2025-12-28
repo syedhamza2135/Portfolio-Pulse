@@ -1,13 +1,6 @@
-import { Router } from 'express';
 import Portfolio from '../models/portfolio.js';
 import Holding from '../models/holdings.js';
-import { requireAuth } from '../middleware/auth.js';
 import { createPortfolioSchema, updatePortfolioSchema } from '../validation/portfolio.js';
-
-const router = Router();
-
-// Apply authentication middleware to all routes
-router.use(requireAuth);
 
 // Helper function for consistent user ID extraction
 const getUserId = (req) => {
@@ -18,8 +11,7 @@ const getUserId = (req) => {
     return userId.toString ? userId.toString() : userId;
 };
 
-// Get all portfolios for the authenticated user
-router.get('/', async (req, res) => {
+export async function getPortfolios (req, res){
     try {
         const userId = getUserId(req);
         const portfolios = await Portfolio.find({ userId }).sort({ createdAt: 1 });
@@ -28,10 +20,9 @@ router.get('/', async (req, res) => {
         console.error('Error fetching portfolios:', err);
         res.status(500).json({ error: 'Failed to fetch portfolios' });
     }
-});
+}
 
-// Get a single portfolio with its holdings
-router.get('/:id', async (req, res) => {
+export async function getPortfoliobyID(req, res){
     try {
         const userId = getUserId(req);
         const portfolio = await Portfolio.findOne({ 
@@ -61,10 +52,9 @@ router.get('/:id', async (req, res) => {
         
         res.status(500).json({ error: 'Failed to fetch portfolio' });
     }
-});
+}
 
-// Create a new portfolio
-router.post('/', async (req, res) => {
+export async function createPortfolio(req, res){
     try {
         // Validate request body
         const { error, value } = createPortfolioSchema.validate(req.body);
@@ -90,10 +80,9 @@ router.post('/', async (req, res) => {
         
         res.status(500).json({ error: 'Failed to create portfolio' });
     }
-});
+}
 
-// Update an existing portfolio
-router.put('/:id', async (req, res) => {
+export async function updatePortfolio(req, res){
     try {
         // Validate request body
         const { error, value } = updatePortfolioSchema.validate(req.body);
@@ -126,10 +115,9 @@ router.put('/:id', async (req, res) => {
         
         res.status(500).json({ error: 'Failed to update portfolio' });
     }
-});
+}
 
-// Delete a portfolio and its associated holdings
-router.delete('/:id', async (req, res) => {
+export async function deletePortfolio(req, res){
     try {
         const userId = getUserId(req);
         
@@ -159,6 +147,4 @@ router.delete('/:id', async (req, res) => {
         
         res.status(500).json({ error: 'Failed to delete portfolio' });
     }
-});
-
-export default router;
+}
