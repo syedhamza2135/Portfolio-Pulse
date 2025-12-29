@@ -13,6 +13,7 @@ import portfolioRoutes from './routes/portfolioRoute.js';
 import holdingRoutes from './routes/holdingsRoute.js';
 import priceRoutes from './routes/priceRoute.js';
 import { startPriceUpdateJob } from './jobs/priceUpdateJob.js';
+import { validateEnvironment } from './utils/validateEnv.js';
 
 dotenv.config();
 
@@ -49,9 +50,6 @@ app.use('/api/', apiLimiter);
 // Apply strict rate limiting to auth routes
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
-
-//Jobs
-startPriceUpdateJob();
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -117,31 +115,49 @@ app.use((err, req, res, next) => {
 });
 
 async function start() {
-  const mongoUri = process.env.MONGO_URI;
-  if (!mongoUri) {
-    throw new Error('MONGO_URI is not set');
+  try {
+    // Validate environment variables first
+    console.log('Validating environment variables...');
+    const config = validateEnvironment();
+    
+    const mongoUri = process.env.MONGO_URI;
+    const jwtSecret = process.env.JWT_SECRET;
+
+    // Connect to MongoDB with options
+    console.log('Connecting to MongoDB...');
+    await mongoose.connect(mongoUri, {
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+    });
+
+    console.log('✓ Connected to MongoDB');
+
+    // Start price update cron job
+    startPriceUpdateJob();
+
+    const port = Number(config.port);
+    app.listen(port, () => {
+      console.log('');
+      console.log('=================================');
+      console.log(`✓ API server running on port ${port}`);
+      console.log(`✓ Environment: ${config.nodeEnv}`);
+      console.log(`✓ CORS Origin: ${config.corsOrigin}`);
+      console.log(`✓ Rate limiting: enabled`);
+      console.log(`✓ Input sanitization: enabled`);
+      console.log(`✓ Price updates: scheduled`);
+      if (config.hasAlphaVantage) {
+        console.log('✓ Alpha Vantage API: configured');
+      }
+      if (config.hasFinnhub) {
+        console.log('✓ Finnhub API: configured');
+      }
+      console.log('=================================');
+      console.log('');
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error.message);
+    process.exit(1);
   }
-
-  const jwtSecret = process.env.JWT_SECRET;
-  if (!jwtSecret) {
-    throw new Error('JWT_SECRET is not set');
-  }
-
-  // Connect to MongoDB with options
-  await mongoose.connect(mongoUri, {
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-  });
-
-  console.log('✓ Connected to MongoDB');
-
-  const port = Number(process.env.PORT) || 5000;
-  app.listen(port, () => {
-    console.log(`✓ API server running on port ${port}`);
-    console.log(`✓ Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`✓ Rate limiting: enabled`);
-    console.log(`✓ Input sanitization: enabled`);
-  });
 }
 
 // Graceful shutdown
@@ -157,7 +173,13 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-start().catch((e) => {
-  console.error('Failed to start server:', e);
-  process.exit(1);
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // In production, you might want to exit the process
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  }
 });
+
+start();

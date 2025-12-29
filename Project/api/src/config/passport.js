@@ -11,12 +11,22 @@ export default function setupPassport(passport) {
       { usernameField: 'email', passwordField: 'password' },
       async (email, password, done) => {
         try {
-          const user = await User.findOne({ email: email.toLowerCase().trim() });
-          if (!user) return done(null, false, { message: 'Invalid credentials' });
+          // Normalize email (lowercase and trim)
+          const normalizedEmail = email.toLowerCase().trim();
+          
+          const user = await User.findOne({ email: normalizedEmail });
+          if (!user) {
+            return done(null, false, { message: 'Invalid credentials' });
+          }
+          
           const ok = await bcrypt.compare(password, user.passwordHash);
-          if (!ok) return done(null, false, { message: 'Invalid credentials' });
+          if (!ok) {
+            return done(null, false, { message: 'Invalid credentials' });
+          }
+          
           return done(null, user);
         } catch (err) {
+          console.error('LocalStrategy error:', err);
           return done(err);
         }
       }
@@ -32,11 +42,18 @@ export default function setupPassport(passport) {
     new JwtStrategy(opts, async (payload, done) => {
       try {
         const id = payload.sub || payload.id || payload._id;
-        if (!id) return done(null, false);
+        if (!id) {
+          return done(null, false);
+        }
+        
         const user = await User.findById(id).select('-passwordHash');
-        if (user) return done(null, user);
+        if (user) {
+          return done(null, user);
+        }
+        
         return done(null, false);
       } catch (err) {
+        console.error('JwtStrategy error:', err);
         return done(err, false);
       }
     })

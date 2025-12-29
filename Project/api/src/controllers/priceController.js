@@ -1,4 +1,40 @@
 import priceUpdateService from '../services/priceUpdateService.js';
+import priceFetcher from '../services/priceFetcherService.js';
+import Portfolio from '../models/portfolio.js';
+import Holding from '../models/holdings.js';
+
+// Helper function to verify portfolio ownership
+async function verifyPortfolioOwnership(portfolioId, userId) {
+  const portfolio = await Portfolio.findOne({ _id: portfolioId, userId });
+  if (!portfolio) {
+    throw new Error('Portfolio not found or access denied');
+  }
+  return portfolio;
+}
+
+// Helper function to verify holding ownership through portfolio
+async function verifyHoldingOwnership(holdingId, userId) {
+  const holding = await Holding.findById(holdingId);
+  if (!holding) {
+    throw new Error('Holding not found');
+  }
+  
+  const portfolio = await Portfolio.findOne({ _id: holding.portfolioId, userId });
+  if (!portfolio) {
+    throw new Error('Access denied');
+  }
+  
+  return { holding, portfolio };
+}
+
+// Helper function for consistent user ID extraction
+const getUserId = (req) => {
+  const userId = req.user.sub || req.user._id || req.user.id;
+  if (!userId) {
+    throw new Error('User ID not found in token');
+  }
+  return userId.toString ? userId.toString() : userId;
+};
 
 export async function refreshHoldingPrice(req, res) {
   try {

@@ -4,23 +4,29 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import express from 'express';
+import passport from 'passport';
 import User from '../models/user.js';
 import authRoutes from '../routes/authRoute.js';
-import { authLimiter } from '../middleware/rateLimiter.js';
+import setupPassport from '../config/passport.js';
 import mongoSanitize from 'express-mongo-sanitize';
 import 'dotenv/config';
 
 jest.setTimeout(20000);
 
 // Mock environment variables
-process.env.JWT_SECRET = 'test-secret-key-for-jwt-testing-only';
+process.env.JWT_SECRET = '4c63ba0f24aa80ceb75c4e513d72b546406d53b5bd7618b70fc94dcb3a7c1001';
+process.env.NODE_ENV = 'test';
 
-// Create test app with middleware
+// Create test app with middleware - MUST initialize passport properly
 function createTestApp() {
   const app = express();
   app.use(express.json());
   app.use(mongoSanitize({ replaceWith: '_' }));
-  // Note: Rate limiting disabled in tests or we'd need to test with delays
+  
+  // CRITICAL: Initialize passport BEFORE routes
+  setupPassport(passport);
+  app.use(passport.initialize());
+  
   app.use('/api/auth', authRoutes);
   return app;
 }
@@ -30,30 +36,36 @@ describe('Authentication Logic', () => {
   let app;
   const testEmail = 'test@example.com';
   const testPassword = 'Test123!@#';
-
+  
   // Connect to DB once
   beforeAll(async () => {
-    await mongoose.connect(process.env.MONGO_URI);
+    if (mongoose.connection.readyState === 0) {
+      await mongoose.connect(process.env.MONGO_URI);
+    }
     app = createTestApp();
   });
 
   // Clean DB + create user per test
   beforeEach(async () => {
     await User.deleteMany({});
-
-    const passwordHash = await bcrypt.hash(testPassword, 4); // faster for tests
-    testUser = await User.create({
-      email: testEmail,
-      passwordHash,
-    });
   });
 
   // Close DB cleanly
   afterAll(async () => {
-    await mongoose.connection.close();
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.connection.close();
+    }
   });
 
   describe('User Registration', () => {
+    beforeEach(async () => {
+      const passwordHash = await bcrypt.hash(testPassword, 4);
+      testUser = await User.create({
+        email: testEmail,
+        passwordHash,
+      });
+    });
+
     it('should hash passwords correctly', async () => {
       const hash = await bcrypt.hash(testPassword, 4);
 
@@ -173,6 +185,16 @@ describe('Authentication Logic', () => {
   });
 
   describe('JWT Token Generation', () => {
+
+    beforeEach(async () => {
+      const passwordHash = await bcrypt.hash(testPassword, 4);
+      testUser = await User.create({
+        email: testEmail,
+        passwordHash,
+      });
+    });
+
+
     it('should generate valid JWT token', () => {
       const payload = {
         sub: testUser._id.toString(),
@@ -234,6 +256,15 @@ describe('Authentication Logic', () => {
   });
 
   describe('Login API', () => {
+    beforeEach(async () => {
+      const passwordHash = await bcrypt.hash(testPassword, 4);
+      testUser = await User.create({
+        email: testEmail,
+        passwordHash,
+      });
+    });
+
+
     it('should login with valid credentials', async () => {
       const response = await request(app)
         .post('/api/auth/login')
@@ -298,7 +329,6 @@ describe('Authentication Logic', () => {
     });
 
     it('should handle case-insensitive email login', async () => {
-      // Note: Email is normalized to lowercase during registration and login
       const response = await request(app)
         .post('/api/auth/login')
         .send({
@@ -325,6 +355,14 @@ describe('Authentication Logic', () => {
   });
 
   describe('Password Validation', () => {
+    beforeEach(async () => {
+      const passwordHash = await bcrypt.hash(testPassword, 4);
+      testUser = await User.create({
+        email: testEmail,
+        passwordHash,
+      });
+    });
+
     it('should require minimum 6 characters', () => {
       expect(testPassword.length).toBeGreaterThanOrEqual(6);
     });
@@ -359,6 +397,13 @@ describe('Authentication Logic', () => {
   });
 
   describe('Input Sanitization', () => {
+    beforeEach(async () => {
+      const passwordHash = await bcrypt.hash(testPassword, 4);
+      testUser = await User.create({
+        email: testEmail,
+        passwordHash,
+      });
+    });
     it('should sanitize NoSQL injection attempts in email', async () => {
       const response = await request(app)
         .post('/api/auth/login')
@@ -369,7 +414,6 @@ describe('Authentication Logic', () => {
 
       expect(response.status).toBe(400);
       expect(response.body).toHaveProperty('error');
-      // Should fail validation, not reach database
     });
 
     it('should sanitize malicious characters in registration', async () => {
@@ -398,6 +442,13 @@ describe('Authentication Logic', () => {
   });
 
   describe('Error Handling', () => {
+    beforeEach(async () => {
+      const passwordHash = await bcrypt.hash(testPassword, 4);
+      testUser = await User.create({
+        email: testEmail,
+        passwordHash,
+      });
+    });
     it('should return consistent error format', async () => {
       const response = await request(app)
         .post('/api/auth/login')
@@ -419,6 +470,11 @@ describe('Authentication Logic', () => {
           password: 'WrongPassword'
         });
 
+      // Check response has error property and it's a string
+      expect(response.body).toHaveProperty('error');
+      expect(typeof response.body.error).toBe('string');
+      
+      // Then check it doesn't contain sensitive info
       expect(response.body.error).not.toContain('passwordHash');
       expect(response.body.error).not.toContain('bcrypt');
       expect(response.body.error).not.toContain('mongoose');
@@ -426,6 +482,13 @@ describe('Authentication Logic', () => {
   });
 
   describe('User Model', () => {
+    beforeEach(async () => {
+      const passwordHash = await bcrypt.hash(testPassword, 4);
+      testUser = await User.create({
+        email: testEmail,
+        passwordHash,
+      });
+    });
     it('should have default preferences', async () => {
       const user = await User.findById(testUser._id);
       
@@ -462,7 +525,7 @@ describe('Authentication Logic', () => {
     });
 
     it('should lowercase and trim email on save', async () => {
-      const newEmail = '  TEST@EXAMPLE.COM  ';
+      const newEmail = '  NEWTEST@EXAMPLE.COM  ';
       const passwordHash = await bcrypt.hash('Test123!@#', 4);
       
       const user = await User.create({
@@ -470,11 +533,18 @@ describe('Authentication Logic', () => {
         passwordHash
       });
 
-      expect(user.email).toBe('test@example.com');
+      expect(user.email).toBe('newtest@example.com');
     });
   });
 
   describe('Token Payload', () => {
+    beforeEach(async () => {
+      const passwordHash = await bcrypt.hash(testPassword, 4);
+      testUser = await User.create({
+        email: testEmail,
+        passwordHash,
+      });
+    });
     it('should include correct user information in token', async () => {
       const response = await request(app)
         .post('/api/auth/login')
@@ -483,8 +553,13 @@ describe('Authentication Logic', () => {
           password: testPassword
         });
 
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('token');
+
       const decoded = jwt.decode(response.body.token);
 
+      expect(decoded).toBeDefined();
+      expect(decoded).not.toBeNull();
       expect(decoded).toHaveProperty('sub');
       expect(decoded).toHaveProperty('email', testEmail);
       expect(decoded).toHaveProperty('iat');
@@ -500,14 +575,24 @@ describe('Authentication Logic', () => {
           password: testPassword
         });
 
+      expect(response.status).toBe(200);
       const decoded = jwt.decode(response.body.token);
 
+      expect(decoded).toBeDefined();
+      expect(decoded).not.toBeNull();
       expect(decoded.sub).toBe(testUser._id.toString());
       expect(decoded.sub).not.toBeInstanceOf(mongoose.Types.ObjectId);
     });
   });
 
   describe('Security Best Practices', () => {
+    beforeEach(async () => {
+      const passwordHash = await bcrypt.hash(testPassword, 4);
+      testUser = await User.create({
+        email: testEmail,
+        passwordHash,
+      });
+    });
     it('should not return passwordHash in any response', async () => {
       // Registration
       let response = await request(app)
@@ -527,7 +612,9 @@ describe('Authentication Logic', () => {
           password: testPassword
         });
 
+      expect(response.status).toBe(200);
       expect(response.body).not.toHaveProperty('passwordHash');
+      expect(response.body).toHaveProperty('user');
       expect(response.body.user).not.toHaveProperty('passwordHash');
     });
 
@@ -535,7 +622,7 @@ describe('Authentication Logic', () => {
       const hash = await bcrypt.hash('test', 12);
       const rounds = bcrypt.getRounds(hash);
       
-      expect(rounds).toBeGreaterThanOrEqual(10); // Production should use 12
+      expect(rounds).toBeGreaterThanOrEqual(10);
     });
 
     it('should not reveal if email exists on login failure', async () => {
@@ -564,6 +651,13 @@ describe('Authentication Logic', () => {
   });
 
   describe('Edge Cases', () => {
+    beforeEach(async () => {
+      const passwordHash = await bcrypt.hash(testPassword, 4);
+      testUser = await User.create({
+        email: testEmail,
+        passwordHash,
+      });
+    });
     it('should handle empty request body', async () => {
       const response = await request(app)
         .post('/api/auth/login')
@@ -592,7 +686,6 @@ describe('Authentication Logic', () => {
           password: longPassword
         });
 
-      // Should either succeed or fail gracefully (not crash)
       expect([201, 400]).toContain(response.status);
     });
 
@@ -621,11 +714,11 @@ describe('Authentication Logic', () => {
 
       const results = await Promise.all(promises);
 
-      // One should succeed, one should fail (due to unique email constraint)
+      // One should succeed, one should fail
       const statuses = results.map(r => r.status).sort();
       expect(statuses.length).toBe(2);
-      expect(statuses).toContain(201); // One success
-      expect(statuses).toContain(400); // One failure (duplicate email)
+      expect(statuses).toContain(201);
+      expect(statuses).toContain(400);
       
       // Verify only one user was created
       const users = await User.find({ email: email.toLowerCase() });

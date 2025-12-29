@@ -194,12 +194,10 @@ export async function getPortfolioDetailedStats(req, res) {
         });
         
     } catch (err) {
-        console.error('Error fetching portfolio detailed stats:', err);
-        
         if (err.name === 'CastError') {
             return res.status(400).json({ error: 'Invalid portfolio ID format' });
         }
-        
-        res.status(500).json({ error: 'Failed to fetch portfolio statistics' });
+        console.error('Error fetching portfolio detailed stats:', err);
+        return res.status(500).json({ error: 'Failed to fetch portfolio stats' });
     }
 }
