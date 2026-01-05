@@ -2,7 +2,7 @@ import Joi from 'joi';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import passport from 'passport';
-import User from "../models/user.js";
+import User from '../models/user.js';
 
 const registerSchema = Joi.object({
   email: Joi.string().email().trim().lowercase().required(),

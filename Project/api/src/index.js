@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import mongoSanitize from 'express-mongo-sanitize';
 import passport from 'passport';
+import { createServer } from 'http';
 import setupPassport from './config/passport.js';
 import { authLimiter, apiLimiter } from './middleware/rateLimiter.js';
 import authRoutes from './routes/authRoute.js';
@@ -15,15 +16,23 @@ import priceRoutes from './routes/priceRoute.js';
 import { startPriceUpdateJob } from './jobs/priceUpdateJob.js';
 import { validateEnvironment } from './utils/validateEnv.js';
 
+// GraphQL imports
+import { createApolloServer, createGraphQLMiddleware } from './graphql/server.js';
+
 dotenv.config();
 
 const app = express();
+const httpServer = createServer(app);
 
 // Setup passport strategies
 setupPassport(passport);
 
-// Security middleware - Apply early in the chain
-app.use(helmet());
+// Security middleware - UPDATED for GraphQL
+app.use(helmet({
+  contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false,
+  crossOriginEmbedderPolicy: false, // Allow GraphQL Playground
+}));
+
 app.use(cors({ 
   origin: process.env.CORS_ORIGIN || '*',
   credentials: true
@@ -51,7 +60,7 @@ app.use('/api/', apiLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 
-// Routes
+// REST Routes (keep existing)
 app.use('/api/auth', authRoutes);
 app.use('/api', meRoutes);
 app.use('/api/portfolios', portfolioRoutes);
@@ -121,7 +130,6 @@ async function start() {
     const config = validateEnvironment();
     
     const mongoUri = process.env.MONGO_URI;
-    const jwtSecret = process.env.JWT_SECRET;
 
     // Connect to MongoDB with options
     console.log('Connecting to MongoDB...');
@@ -132,19 +140,30 @@ async function start() {
 
     console.log('✓ Connected to MongoDB');
 
+    // Initialize GraphQL Server
+    console.log('Initializing GraphQL server...');
+    const apolloServer = await createApolloServer(httpServer);
+    
+    // Apply GraphQL middleware (AFTER body-parser but BEFORE error handler)
+    app.use('/graphql', createGraphQLMiddleware(apolloServer));
+    
+    console.log('✓ GraphQL server initialized');
+
     // Start price update cron job
     startPriceUpdateJob();
 
     const port = Number(config.port);
-    app.listen(port, () => {
+    httpServer.listen(port, () => {
       console.log('');
       console.log('=================================');
       console.log(`✓ API server running on port ${port}`);
       console.log(`✓ Environment: ${config.nodeEnv}`);
       console.log(`✓ CORS Origin: ${config.corsOrigin}`);
-      console.log(`✓ Rate limiting: enabled`);
-      console.log(`✓ Input sanitization: enabled`);
-      console.log(`✓ Price updates: scheduled`);
+      console.log(`✓ REST API: http://localhost:${port}/api`);
+      console.log(`✓ GraphQL: http://localhost:${port}/graphql`);
+      console.log('✓ Rate limiting: enabled');
+      console.log('✓ Input sanitization: enabled');
+      console.log('✓ Price updates: scheduled');
       if (config.hasAlphaVantage) {
         console.log('✓ Alpha Vantage API: configured');
       }

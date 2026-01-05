@@ -41,7 +41,7 @@ class PriceFetcherService {
     }
 
     // Alpha Vantage API
-    const url = `https://www.alphavantage.co/query`;
+    const url = 'https://www.alphavantage.co/query';
     const params = {
       function: 'GLOBAL_QUOTE',
       symbol: ticker,
@@ -74,7 +74,7 @@ class PriceFetcherService {
   async fetchCryptoPrice(ticker) {
     // CoinGecko API (free, no key needed)
     const coinId = this.cryptoTickerToCoinId(ticker);
-    const url = `https://api.coingecko.com/api/v3/simple/price`;
+    const url = 'https://api.coingecko.com/api/v3/simple/price';
     const params = {
       ids: coinId,
       vs_currencies: 'usd'
@@ -188,7 +188,7 @@ class PriceFetcherService {
       const uniqueCoinIds = [...new Set(coinIds)]; // Remove duplicates
       
       try {
-        const url = `https://api.coingecko.com/api/v3/simple/price`;
+        const url = 'https://api.coingecko.com/api/v3/simple/price';
         const response = await axios.get(url, {
           params: {
             ids: uniqueCoinIds.join(','),

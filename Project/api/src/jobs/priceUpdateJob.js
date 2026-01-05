@@ -12,7 +12,7 @@ export function startPriceUpdateJob() {
       console.error('[Cron] Price update failed:', err);
     }
   }, {
-    timezone: "America/New_York"
+    timezone: 'America/New_York'
   });
   
   console.log('✓ Price update cron job started (every 15 min during market hours)');

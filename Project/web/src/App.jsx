@@ -1,7 +1,9 @@
+import { ApolloProvider } from '@apollo/client';
 import { useAuth } from "./hooks/useAuth";
 import AppRouter from "./routes/AppRouter";
 import Navbar from "./components/layout/Navbar";
 import Sidebar from "./components/layout/Sidebar";
+import apolloClient from "./lib/apolloClient";
 
 export default function App() {
   const { isAuthenticated, loading } = useAuth();
@@ -21,17 +23,19 @@ export default function App() {
   // Authenticated layout with sidebar and navbar
   if (isAuthenticated) {
     return (
-      <div className="flex h-screen overflow-hidden bg-gray-50">
-        <Sidebar />
+      <ApolloProvider client={apolloClient}>
+        <div className="flex h-screen overflow-hidden bg-gray-50">
+          <Sidebar />
 
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <Navbar />
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <Navbar />
 
-          <main className="flex-1 overflow-y-auto bg-white">
-            <AppRouter />
-          </main>
+            <main className="flex-1 overflow-y-auto bg-white">
+              <AppRouter />
+            </main>
+          </div>
         </div>
-      </div>
+      </ApolloProvider>
     );
   }
 

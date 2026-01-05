@@ -3,15 +3,21 @@ import passport from 'passport';
 export function requireAuth(req, res, next) {
   passport.authenticate('jwt', { session: false }, (err, user, info) => {
     if (err) {
-      return res.status(500).json({ error: 'Server error' });
+      console.error('Passport Auth Error:', err);
+      return res.status(500).json({ error: 'Internal server error during authentication' });
     }
+
     if (!user) {
-      return res.status(401).json({ error: 'Invalid or expired token' });
+      const errorMessage = info?.name === 'TokenExpiredError' 
+        ? 'Your session has expired. Please log in again.' 
+        : 'Access denied. Valid token required.';
+        
+      return res.status(401).json({ error: errorMessage });
     }
+
     req.user = user;
-    // Ensure req.user.sub exists for consistency (JWT payload uses 'sub', user object has '_id')
-    // Convert ObjectId to string if needed
-    req.user.sub = req.user._id ? (req.user._id.toString ? req.user._id.toString() : req.user._id) : req.user.id;
+    req.user.sub = user._id?.toString() || user.id;
+
     next();
   })(req, res, next);
 }

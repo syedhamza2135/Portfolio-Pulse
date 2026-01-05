@@ -8,7 +8,6 @@ import User from '../models/user.js';
 import Portfolio from '../models/portfolio.js';
 import Holding from '../models/holdings.js';
 import portfolioRoutes from '../routes/portfolioRoute.js';
-import { requireAuth } from '../middleware/auth.js';
 import setupPassport from '../config/passport.js';
 import passport from 'passport';
 import 'dotenv/config';

@@ -2,7 +2,6 @@ import Portfolio from '../models/portfolio.js';
 import Holding from '../models/holdings.js';
 import { createPortfolioSchema, updatePortfolioSchema } from '../validation/portfolio.js';
 
-// Helper function for consistent user ID extraction
 const getUserId = (req) => {
     const userId = req.user.sub || req.user._id || req.user.id;
     if (!userId) {
@@ -121,7 +120,6 @@ export async function deletePortfolio(req, res){
     try {
         const userId = getUserId(req);
         
-        // Find the portfolio first to ensure it exists and belongs to the user
         const portfolio = await Portfolio.findOne({ 
             _id: req.params.id, 
             userId 
