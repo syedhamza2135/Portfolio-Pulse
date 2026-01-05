@@ -17,6 +17,7 @@
     "cors": "^2.8.5",
     "cross-env": "^10.1.0",
     "crossenv": "^0.0.2-security",
+    "dataloader": "^2.2.3",
     "dotenv": "^16.6.1",
     "express": "^4.22.1",
     "express-mongo-sanitize": "^2.2.0",

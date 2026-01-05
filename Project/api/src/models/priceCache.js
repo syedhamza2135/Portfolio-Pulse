@@ -6,7 +6,8 @@ const priceCacheSchema = new mongoose.Schema({
     required: true, 
     unique: true, 
     uppercase: true,
-    trim: true
+    trim: true,
+    index: true
   },
   assetType: { 
     type: String, 
@@ -25,14 +26,14 @@ const priceCacheSchema = new mongoose.Schema({
   },
   fetchedAt: { 
     type: Date, 
-    default: Date.now,
-    expires: 900
+    default: Date.now
   }
 }, { 
   timestamps: true 
 });
 
-// Index for faster lookups
+priceCacheSchema.index({ fetchedAt: 1 }, { expireAfterSeconds: 900 });
+
 priceCacheSchema.index({ ticker: 1, assetType: 1 });
 
 export default mongoose.model('PriceCache', priceCacheSchema);

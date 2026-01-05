@@ -1,24 +1,12 @@
 import Portfolio from '../models/portfolio.js';
 import Holding from '../models/holdings.js';
+import { getUserId } from '../utils/authHelpers.js';
 
-// Helper function for consistent user ID extraction
-const getUserId = (req) => {
-    const userId = req.user.sub || req.user._id || req.user.id;
-    if (!userId) {
-        throw new Error('User ID not found in token');
-    }
-    return userId.toString ? userId.toString() : userId;
-};
 
-/**
- * Get comprehensive statistics for all user's portfolios
- * GET /api/portfolios/stats
- */
 export async function getPortfolioStats(req, res) {
     try {
         const userId = getUserId(req);
         
-        // Get all portfolios for the user
         const portfolios = await Portfolio.find({ userId });
         
         if (portfolios.length === 0) {
@@ -34,18 +22,15 @@ export async function getPortfolioStats(req, res) {
             });
         }
         
-        // Get all holdings for all portfolios
         const portfolioIds = portfolios.map(p => p._id);
         const allHoldings = await Holding.find({ portfolioId: { $in: portfolioIds } });
         
-        // Calculate statistics
         let totalInvestment = 0;
         let currentValue = 0;
         let portfoliosWithHoldings = 0;
         
         const portfolioMap = new Map();
         
-        // Group holdings by portfolio
         allHoldings.forEach(holding => {
             const portfolioId = holding.portfolioId.toString();
             if (!portfolioMap.has(portfolioId)) {
@@ -54,15 +39,12 @@ export async function getPortfolioStats(req, res) {
             portfolioMap.get(portfolioId).push(holding);
         });
         
-        // Count portfolios with at least one holding
         portfoliosWithHoldings = portfolioMap.size;
         
-        // Calculate totals
         allHoldings.forEach(holding => {
             const cost = holding.quantity * holding.averageCost;
             totalInvestment += cost;
             
-            // Use current price if available, otherwise use average cost
             const value = holding.currentPrice > 0
                 ? holding.quantity * holding.currentPrice
                 : cost;
@@ -91,22 +73,17 @@ export async function getPortfolioStats(req, res) {
     }
 }
 
-/**
- * Get detailed statistics for a specific portfolio
- * GET /api/portfolios/:id/stats
- */
+
 export async function getPortfolioDetailedStats(req, res) {
     try {
         const userId = getUserId(req);
         const portfolioId = req.params.id;
         
-        // Verify portfolio ownership
         const portfolio = await Portfolio.findOne({ _id: portfolioId, userId });
         if (!portfolio) {
             return res.status(404).json({ error: 'Portfolio not found' });
         }
         
-        // Get all holdings for this portfolio
         const holdings = await Holding.find({ portfolioId });
         
         if (holdings.length === 0) {
@@ -125,7 +102,6 @@ export async function getPortfolioDetailedStats(req, res) {
             });
         }
         
-        // Calculate statistics
         let totalInvestment = 0;
         let currentValue = 0;
         const holdingStats = [];
@@ -149,7 +125,6 @@ export async function getPortfolioDetailedStats(req, res) {
                 value
             });
             
-            // Asset type breakdown
             const assetType = holding.assetType || 'unknown';
             if (!assetTypeBreakdown[assetType]) {
                 assetTypeBreakdown[assetType] = {
@@ -162,7 +137,6 @@ export async function getPortfolioDetailedStats(req, res) {
             assetTypeBreakdown[assetType].totalValue += value;
         });
         
-        // Calculate asset type percentages
         Object.keys(assetTypeBreakdown).forEach(type => {
             assetTypeBreakdown[type].percentage = currentValue > 0
                 ? (assetTypeBreakdown[type].totalValue / currentValue) * 100
@@ -171,7 +145,6 @@ export async function getPortfolioDetailedStats(req, res) {
             assetTypeBreakdown[type].totalValue = Math.round(assetTypeBreakdown[type].totalValue * 100) / 100;
         });
         
-        // Sort by profit/loss
         holdingStats.sort((a, b) => b.profitLoss - a.profitLoss);
         
         const totalProfitLoss = currentValue - totalInvestment;

@@ -1,9 +1,11 @@
+import mongoose from 'mongoose';
 import { createHoldingSchema, updateHoldingSchema } from '../validation/holding.js';
 import Holding from '../models/holdings.js';
 import Portfolio from '../models/portfolio.js';
 import { recalculatePortfolioValues } from '../services/portfolioCalculation.js';
+import { getUserId } from '../utils/authHelpers.js';
 
-// Helper function to verify portfolio ownership
+
 async function verifyPortfolioOwnership(portfolioId, userId) {
   const portfolio = await Portfolio.findOne({ _id: portfolioId, userId });
   if (!portfolio) {
@@ -12,7 +14,7 @@ async function verifyPortfolioOwnership(portfolioId, userId) {
   return portfolio;
 }
 
-// Helper function to verify holding ownership through portfolio
+
 async function verifyHoldingOwnership(holdingId, userId) {
   const holding = await Holding.findById(holdingId);
   if (!holding) {
@@ -27,6 +29,7 @@ async function verifyHoldingOwnership(holdingId, userId) {
   return { holding, portfolio };
 }
 
+
 export async function getHoldings(req, res) {
   try {
     const { portfolioId } = req.query;
@@ -35,11 +38,13 @@ export async function getHoldings(req, res) {
       return res.status(400).json({ error: 'portfolioId query parameter is required' });
     }
 
-    // Verify portfolio ownership
-    await verifyPortfolioOwnership(portfolioId, req.user.sub);
+    const userId = getUserId(req);
+    
+    await verifyPortfolioOwnership(portfolioId, userId);
 
-    // Fetch holdings
-    const holdings = await Holding.find({ portfolioId }).sort({ createdAt: 1 });
+    const holdings = await Holding.find({ portfolioId })
+      .sort({ createdAt: 1 })
+      .lean();
     
     res.json(holdings);
   } catch (err) {
@@ -53,9 +58,11 @@ export async function getHoldings(req, res) {
   }
 }
 
+
 export async function getHoldingbyID(req, res) {
   try {
-    const { holding } = await verifyHoldingOwnership(req.params.id, req.user.sub);
+    const userId = getUserId(req);
+    const { holding } = await verifyHoldingOwnership(req.params.id, userId);
     res.json(holding);
   } catch (err) {
     console.error('Error fetching holding:', err);
@@ -76,46 +83,43 @@ export async function getHoldingbyID(req, res) {
   }
 }
 
+
 export async function createHolding(req, res) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
   try {
-    // Validate request body
     const { error, value } = createHoldingSchema.validate(req.body);
     if (error) {
+      await session.abortTransaction();
       return res.status(400).json({ error: error.message });
     }
 
-    // Verify portfolio ownership
-    await verifyPortfolioOwnership(value.portfolioId, req.user.sub);
-
-    // Check if holding already exists
-    const existingHolding = await Holding.findOne({
-      portfolioId: value.portfolioId,
-      ticker: value.ticker.toUpperCase()
-    });
-
-    if (existingHolding) {
-      return res.status(409).json({ 
-        error: 'A holding with this ticker already exists in this portfolio' 
-      });
-    }
-
-    // Create holding
-    const holding = await Holding.create(value);
+    const userId = getUserId(req);
     
-    // Recalculate portfolio values
-    try {
-      await recalculatePortfolioValues(value.portfolioId);
-    } catch (calcError) {
-      console.error('Error recalculating portfolio after creating holding:', calcError);
-      // Don't fail the request, just log the error
-    }
+    await verifyPortfolioOwnership(value.portfolioId, userId);
+
+    value.ticker = value.ticker.toUpperCase();
+
+    const holding = await Holding.create([value], { session });
     
-    res.status(201).json(holding);
+    await recalculatePortfolioValues(value.portfolioId, session);
+    
+    await session.commitTransaction();
+    res.status(201).json(holding[0]);
+    
   } catch (err) {
+    await session.abortTransaction();
     console.error('Error creating holding:', err);
     
     if (err.message === 'Portfolio not found or access denied') {
       return res.status(404).json({ error: err.message });
+    }
+    
+    if (err.code === 11000) {
+      return res.status(409).json({ 
+        error: 'A holding with this ticker already exists in this portfolio' 
+      });
     }
     
     if (err.name === 'ValidationError') {
@@ -123,41 +127,43 @@ export async function createHolding(req, res) {
     }
     
     res.status(500).json({ error: 'Failed to create holding' });
+  } finally {
+    session.endSession();
   }
 }
 
+
 export async function updateHolding(req, res) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
   try {
-    // Validate request body
     const { error, value } = updateHoldingSchema.validate(req.body);
     if (error) {
+      await session.abortTransaction();
       return res.status(400).json({ error: error.message });
     }
 
-    // Verify ownership
-    const { holding } = await verifyHoldingOwnership(req.params.id, req.user.sub);
+    const userId = getUserId(req);
+    
+    const { holding } = await verifyHoldingOwnership(req.params.id, userId);
 
-    // Update holding
     Object.assign(holding, value);
     holding.updatedAt = new Date();
     
-    // If currentPrice was updated, update lastPriceUpdate
     if (value.currentPrice !== undefined) {
       holding.lastPriceUpdate = new Date();
     }
     
-    await holding.save();
+    await holding.save({ session });
     
-    // Recalculate portfolio values
-    try {
-      await recalculatePortfolioValues(holding.portfolioId);
-    } catch (calcError) {
-      console.error('Error recalculating portfolio after updating holding:', calcError);
-      // Don't fail the request, just log the error
-    }
+    await recalculatePortfolioValues(holding.portfolioId, session);
     
+    await session.commitTransaction();
     res.json(holding);
+    
   } catch (err) {
+    await session.abortTransaction();
     console.error('Error updating holding:', err);
     
     if (err.name === 'CastError') {
@@ -177,29 +183,31 @@ export async function updateHolding(req, res) {
     }
     
     res.status(500).json({ error: 'Failed to update holding' });
+  } finally {
+    session.endSession();
   }
 }
 
 export async function deleteHolding(req, res) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
   try {
-    // Verify ownership
-    const { holding } = await verifyHoldingOwnership(req.params.id, req.user.sub);
+    const userId = getUserId(req);
+    
+    const { holding } = await verifyHoldingOwnership(req.params.id, userId);
     
     const portfolioId = holding.portfolioId;
 
-    // Delete holding
-    await holding.deleteOne();
+    await holding.deleteOne({ session });
     
-    // Recalculate portfolio values
-    try {
-      await recalculatePortfolioValues(portfolioId);
-    } catch (calcError) {
-      console.error('Error recalculating portfolio after deleting holding:', calcError);
-      // Don't fail the request, just log the error
-    }
+    await recalculatePortfolioValues(portfolioId, session);
     
+    await session.commitTransaction();
     res.status(204).send();
+    
   } catch (err) {
+    await session.abortTransaction();
     console.error('Error deleting holding:', err);
     
     if (err.name === 'CastError') {
@@ -215,5 +223,7 @@ export async function deleteHolding(req, res) {
     }
     
     res.status(500).json({ error: 'Failed to delete holding' });
+  } finally {
+    session.endSession();
   }
 }

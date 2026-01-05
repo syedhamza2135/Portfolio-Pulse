@@ -4,7 +4,9 @@ export function requireAuth(req, res, next) {
   passport.authenticate('jwt', { session: false }, (err, user, info) => {
     if (err) {
       console.error('Passport Auth Error:', err);
-      return res.status(500).json({ error: 'Internal server error during authentication' });
+      return res.status(500).json({ 
+        error: 'Internal server error during authentication' 
+      });
     }
 
     if (!user) {
@@ -15,8 +17,11 @@ export function requireAuth(req, res, next) {
       return res.status(401).json({ error: errorMessage });
     }
 
-    req.user = user;
-    req.user.sub = user._id?.toString() || user.id;
+    req.user = {
+      id: user._id.toString(),
+      email: user.email,
+      preferences: user.preferences || {}
+    };
 
     next();
   })(req, res, next);

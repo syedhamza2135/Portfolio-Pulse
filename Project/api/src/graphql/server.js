@@ -4,6 +4,7 @@ import { expressMiddleware } from '@apollo/server/express4';
 import jwt from 'jsonwebtoken';
 import typeDefs from './schema.js';
 import resolvers from './resolvers/index.js';
+import { createLoaders } from './dataLoaders.js';
 
 export async function createApolloServer(httpServer) {
   const server = new ApolloServer({
@@ -13,7 +14,6 @@ export async function createApolloServer(httpServer) {
     formatError: (error) => {
       console.error('GraphQL Error:', error);
       
-      // Don't expose internal errors in production
       if (process.env.NODE_ENV === 'production') {
         return {
           message: error.message,
@@ -33,19 +33,22 @@ export async function createApolloServer(httpServer) {
 export function createGraphQLMiddleware(server) {
   return expressMiddleware(server, {
     context: async ({ req }) => {
-      // Extract user from JWT token (reuse existing auth middleware logic)
       const token = req.headers.authorization?.replace('Bearer ', '');
+      let user = null;
       
       if (token) {
         try {
           const decoded = jwt.verify(token, process.env.JWT_SECRET);
-          return { user: decoded };
+          user = decoded;
         } catch (err) {
-          console.error('Invalid token in GraphQL context');
+          console.error('Invalid token in GraphQL context:', err.message);
         }
       }
       
-      return { user: null };
+      return { 
+        user,
+        loaders: createLoaders()
+      };
     },
   });
 }

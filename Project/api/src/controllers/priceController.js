@@ -2,6 +2,7 @@ import priceUpdateService from '../services/priceUpdateService.js';
 import priceFetcher from '../services/priceFetcherService.js';
 import Portfolio from '../models/portfolio.js';
 import Holding from '../models/holdings.js';
+import { getUserId } from '../utils/authHelpers.js';
 
 // Helper function to verify portfolio ownership
 async function verifyPortfolioOwnership(portfolioId, userId) {
@@ -27,14 +28,6 @@ async function verifyHoldingOwnership(holdingId, userId) {
   return { holding, portfolio };
 }
 
-// Helper function for consistent user ID extraction
-const getUserId = (req) => {
-  const userId = req.user.sub || req.user._id || req.user.id;
-  if (!userId) {
-    throw new Error('User ID not found in token');
-  }
-  return userId.toString ? userId.toString() : userId;
-};
 
 export async function refreshHoldingPrice(req, res) {
   try {
