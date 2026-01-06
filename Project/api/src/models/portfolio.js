@@ -30,4 +30,6 @@ const portfolioSchema = new mongoose.Schema({
     }
 }, {timestamps: true});
 
+portfolioSchema.index({ userId: 1, createdAt: -1 });
+
 export default mongoose.model('Portfolio', portfolioSchema);

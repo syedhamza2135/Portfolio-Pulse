@@ -56,7 +56,6 @@ const loginSchema = Joi.object({
   password: Joi.string().required()
 });
 
-
 export async function loginUser(req, res, next) {
   try {
     const { error, value } = loginSchema.validate(req.body);
@@ -77,27 +76,26 @@ export async function loginUser(req, res, next) {
       }
 
       try {
-        const token = jwt.sign({
-          sub: user._id.toString(),
-          email: user.email
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: '1d' }
-      );
-      
-      return res.json({
-        token,
-        user: {
-          id: user._id,
-          email: user.email
-        }
-      });
-    } catch (jwtError) {
+        // FIXED: Only 'sub' in payload, 7-day expiry
+        const token = jwt.sign(
+          { sub: user._id.toString() },
+          process.env.JWT_SECRET,
+          { expiresIn: '7d' }
+        );
+        
+        return res.json({
+          token,
+          user: {
+            id: user._id,
+            email: user.email
+          }
+        });
+      } catch (jwtError) {
         console.error('JWT signing error:', jwtError);
         return res.status(500).json({ error: 'Authentication error' });
       }
     })(req, res, next);
-  
+    
   } catch (err) {
     console.error('Login error:', err);
     return res.status(500).json({ error: 'Authentication error' });
