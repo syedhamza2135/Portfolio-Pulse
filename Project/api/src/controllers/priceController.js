@@ -32,11 +32,10 @@ async function verifyHoldingOwnership(holdingId, userId) {
 export async function refreshHoldingPrice(req, res) {
   try {
     const { id } = req.params;
+    const userId = getUserId(req);
     
-    // Verify ownership through holding
-    const { holding } = await verifyHoldingOwnership(id, req.user.sub);
+    const { holding } = await verifyHoldingOwnership(id, userId);
     
-    // Update price
     const updated = await priceUpdateService.updateHoldingPrice(id);
     
     res.json({
