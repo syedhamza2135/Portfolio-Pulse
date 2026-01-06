@@ -3,7 +3,6 @@ import helmet from 'helmet';
 import cors from 'cors';
 import mongoSanitize from 'express-mongo-sanitize';
 import passport from 'passport';
-import setupPassport from './config/passport.js';
 import { authLimiter, apiLimiter } from './middleware/rateLimiter.js';
 import authRoutes from './routes/authRoute.js';
 import meRoutes from './routes/me.js';
@@ -12,8 +11,6 @@ import holdingRoutes from './routes/holdingsRoute.js';
 import priceRoutes from './routes/priceRoute.js';
 
 const app = express();
-
-setupPassport(passport);
 
 // Middleware
 app.use(helmet({
