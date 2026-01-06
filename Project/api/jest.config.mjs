@@ -1,20 +1,17 @@
 export default {
-  testEnvironment: 'node',
-  setupFilesAfterEnv: ['./src/__tests__/jest.setup.mjs'],
+  testEnvironment: "node",
+  setupFilesAfterEnv: ["./src/__tests__/jest.setup.mjs"],
   transform: {},
   maxWorkers: 1,
 
   moduleNameMapper: {
-    '^(\\.{1,2}/.*)\\.js$': '$1',
+    "^(\\.{1,2}/.*)\\.js$": "$1",
+    "^src/(.*)$": "<rootDir>/src/$1",
   },
 
-  testMatch: ['**/__tests__/**/*.js', '**/?(*.)+(spec|test).js'],
+  testMatch: ["**/__tests__/**/*.js", "**/?(*.)+(spec|test).js"],
 
-  collectCoverageFrom: [
-    'src/**/*.js',
-    '!src/index.js',
-    '!src/config/**',
-  ],
+  collectCoverageFrom: ["src/**/*.js", "!src/index.js", "!src/config/**"],
 
   coverageThreshold: {
     global: {
@@ -23,5 +20,5 @@ export default {
       lines: 60,
       statements: 60,
     },
-  }
+  },
 };

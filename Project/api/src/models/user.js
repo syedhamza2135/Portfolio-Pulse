@@ -1,30 +1,33 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
-const userSchema = new mongoose.Schema({
+const userSchema = new mongoose.Schema(
+  {
     email: {
-        type: String, 
-        unique: true, 
-        index: true, 
-        required: true, 
-        lowercase: true, 
-        trim: true
+      type: String,
+      unique: true,
+      index: true,
+      required: true,
+      lowercase: true,
+      trim: true,
     },
     passwordHash: {
-        type: String, 
-        required: true
+      type: String,
+      required: true,
     },
     preferences: {
-        alertThreshold: {type: Number, default: 3},
-        emailEnabled: {type: Boolean, default: true}
-    }
-}, {timestamps: true});
+      alertThreshold: { type: Number, default: 3 },
+      emailEnabled: { type: Boolean, default: true },
+    },
+  },
+  { timestamps: true }
+);
 
 // Pre-save hook to ensure email is always normalized
-userSchema.pre('save', function(next) {
-    if (this.email) {
-        this.email = this.email.toLowerCase().trim();
-    }
-    next();
+userSchema.pre("findOne", function (next) {
+  if (this._conditions.email) {
+    this._conditions.email = this._conditions.email.toLowerCase().trim();
+  }
+  next();
 });
 
-export default mongoose.model('User', userSchema);
+export default mongoose.model("User", userSchema);
