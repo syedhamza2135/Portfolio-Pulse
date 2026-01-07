@@ -24,15 +24,24 @@ class BadInputError extends GraphQLError {
 
 // Auth helpers
 function requireAuth(context) {
-  if (!context.user)
-    throw new GraphQLError("You must be logged in", {
-      extensions: { code: "UNAUTHENTICATED" },
+  if (!context.user) {
+    throw new GraphQLError('You must be logged in', {
+      extensions: { code: 'UNAUTHENTICATED' },
     });
+  }
   return context.user;
 }
 
 function getUserId(context) {
-  return requireAuth(context).sub;
+  const user = requireAuth(context);
+  
+  if (!user.sub) {
+    throw new GraphQLError('Invalid token: missing user ID', {
+      extensions: { code: 'UNAUTHENTICATED' },
+    });
+  }
+  
+  return user.sub;
 }
 
 // Stats calculation helper

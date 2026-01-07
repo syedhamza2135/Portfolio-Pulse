@@ -18,7 +18,7 @@ export function requireAuth(req, res, next) {
     }
 
     req.user = {
-      id: user._id.toString(),
+      sub: user._id.toString(),
       email: user.email,
       preferences: user.preferences || {}
     };

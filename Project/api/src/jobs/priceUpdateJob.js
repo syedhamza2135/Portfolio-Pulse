@@ -5,12 +5,14 @@ export function startPriceUpdateJob() {
   let consecutiveFailures = 0;
   const MAX_FAILURES = 3;
   
-  cron.schedule('*/5 9-16 * * 1-5', async () => {
+  const cronSchedule = process.env.PRICE_UPDATE_CRON || '*/15 14-20 * * 1-5';
+  
+  cron.schedule(cronSchedule, async () => {
     console.log('[Cron] Starting scheduled price update...');
     
     try {
       const result = await priceUpdateService.updateAllPrices();
-      console.log(`[Cron] ✓ Updated ${result.updated}/${result.total} tickers`);
+      console.log(`[Cron] ✓ Updated ${result.tickersUpdated} tickers, ${result.portfoliosUpdated} portfolios`);
       consecutiveFailures = 0;
     } catch (err) {
       console.error('[Cron] Price update failed:', err);
@@ -20,9 +22,8 @@ export function startPriceUpdateJob() {
         console.error(`[Cron] ⚠️ ${MAX_FAILURES} consecutive failures - manual intervention needed`);
       }
     }
-  }, {
-    timezone: 'America/New_York'
   });
   
-  console.log('✓ Price update cron job started (every 5 min during market hours)');
+  console.log(`✓ Price update cron job started (schedule: ${cronSchedule} UTC)`);
+  console.log('  Note: Runs every 15 min during 14:00-20:00 UTC (approx 9am-4pm ET)');
 }

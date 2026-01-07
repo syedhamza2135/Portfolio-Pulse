@@ -1,32 +1,32 @@
-import passportLocal from 'passport-local';
-import { Strategy as JwtStrategy, ExtractJwt } from 'passport-jwt';
-import bcrypt from 'bcrypt';
-import User from '../models/user.js';
+import passportLocal from "passport-local";
+import { Strategy as JwtStrategy, ExtractJwt } from "passport-jwt";
+import bcrypt from "bcrypt";
+import User from "../models/user.js";
 
 const LocalStrategy = passportLocal.Strategy;
 
 export default function setupPassport(passport) {
   passport.use(
     new LocalStrategy(
-      { usernameField: 'email', passwordField: 'password' },
+      { usernameField: "email", passwordField: "password" },
       async (email, password, done) => {
         try {
           // Normalize email (lowercase and trim)
           const normalizedEmail = email.toLowerCase().trim();
-          
+
           const user = await User.findOne({ email: normalizedEmail });
           if (!user) {
-            return done(null, false, { message: 'Invalid credentials' });
+            return done(null, false, { message: "Invalid credentials" });
           }
-          
+
           const ok = await bcrypt.compare(password, user.passwordHash);
           if (!ok) {
-            return done(null, false, { message: 'Invalid credentials' });
+            return done(null, false, { message: "Invalid credentials" });
           }
-          
+
           return done(null, user);
         } catch (err) {
-          console.error('LocalStrategy error:', err);
+          console.error("LocalStrategy error:", err);
           return done(err);
         }
       }
@@ -35,25 +35,28 @@ export default function setupPassport(passport) {
 
   const opts = {
     jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-    secretOrKey: process.env.JWT_SECRET
+    secretOrKey: process.env.JWT_SECRET,
   };
 
   passport.use(
     new JwtStrategy(opts, async (payload, done) => {
       try {
-        const id = payload.sub || payload.id || payload._id;
+        const id = payload.sub;
         if (!id) {
           return done(null, false);
         }
-        
-        const user = await User.findById(id).select('-passwordHash');
+        if (!id) {
+          return done(null, false);
+        }
+
+        const user = await User.findById(id).select("-passwordHash");
         if (user) {
           return done(null, user);
         }
-        
+
         return done(null, false);
       } catch (err) {
-        console.error('JwtStrategy error:', err);
+        console.error("JwtStrategy error:", err);
         return done(err, false);
       }
     })

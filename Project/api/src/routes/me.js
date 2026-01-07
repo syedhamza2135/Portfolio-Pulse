@@ -8,16 +8,21 @@ const router = Router();
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const id = getUserId(req);
-    const user = await User.findById(id).select('email createdAt');
+    const user = await User.findById(id).select('email createdAt preferences');
     
     if (!user) {
       console.error('JWT valid but user not found:', id);
-      return res.status(500).json({ error: 'User account not found. Please re-login.' });
+      return res.status(404).json({ error: 'User account not found. Please re-login.' });
     }
     
     res.json(user);
   } catch (err) {
     console.error('Error fetching user:', err);
+    
+    if (err.message.includes('not authenticated')) {
+      return res.status(401).json({ error: err.message });
+    }
+    
     res.status(500).json({ error: 'Failed to fetch user information' });
   }
 });

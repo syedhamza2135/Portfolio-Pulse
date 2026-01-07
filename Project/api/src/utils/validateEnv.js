@@ -51,12 +51,16 @@ export function validateEnvironment() {
     throw new Error('MONGO_URI must start with mongodb:// or mongodb+srv://');
   }
 
-  // Check if API keys are set
+  // FIX: Enforce at least one API key for price fetching
   const hasAlphaVantage = !!process.env.ALPHA_VANTAGE_API_KEY;
   const hasFinnhub = !!process.env.FINNHUB_API_KEY;
 
   if (!hasAlphaVantage && !hasFinnhub) {
-    console.warn('⚠ No stock price API keys configured. Price fetching will be limited.');
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('At least one stock price API key (ALPHA_VANTAGE or FINNHUB) is required in production');
+    } else {
+      console.warn('⚠ No stock price API keys configured. Price fetching will be limited.');
+    }
   }
 
   console.log('✓ Environment variables validated');
@@ -65,6 +69,6 @@ export function validateEnvironment() {
     hasFinnhub,
     corsOrigin: process.env.CORS_ORIGIN || '*',
     nodeEnv: process.env.NODE_ENV,
-    port: process.env.PORT || 5000
+    port: parseInt(process.env.PORT || '5000', 10)
   };
 }
