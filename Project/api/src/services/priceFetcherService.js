@@ -10,7 +10,7 @@ export class PriceNotFoundError extends Error {
 }
 
 export class RateLimitError extends Error {
-  constructor(message = 'API rate limit reached') {
+  constructor(message = 'API limit reached') {
     super(message);
     this.name = 'RateLimitError';
   }
@@ -18,289 +18,132 @@ export class RateLimitError extends Error {
 
 class PriceFetcherService {
   constructor() {
-    this.apiKeys = {
-      alphaVantage: process.env.ALPHA_VANTAGE_API_KEY,
-      finnhub: process.env.FINNHUB_API_KEY,
-    };
-    
-    if (!this.apiKeys.alphaVantage) {
-      console.warn('⚠️  ALPHA_VANTAGE_API_KEY not set - stock price fetching may fail');
-    }
-    
     this.cache = new Map();
-    this.maxCacheSize = 1000;
-    this.cacheTTL = 60000;
-    this.rateLimitDelay = 250;
+    this.cacheTTL = 60000; 
+    this.rateLimitDelay = 15000; // Alpha Vantage safe delay
+    
+    this.cryptoMapping = {
+      BTC: 'bitcoin', ETH: 'ethereum', BNB: 'binancecoin',
+      USDT: 'tether', USDC: 'usd-coin', XRP: 'ripple',
+      SOL: 'solana', DOGE: 'dogecoin', ADA: 'cardano'
+    };
+
     this.startCacheCleanup();
   }
 
-
   async fetchPrice(ticker, assetType) {
-    const cached = await this.getCachedPrice(ticker);
+    const symbol = ticker.toUpperCase();
+    const cached = await this.getCachedPrice(symbol);
     if (cached) return cached;
 
-    let price;
-    switch(assetType) {
-      case 'stock':
-      case 'etf':
-        price = await this.fetchStockPrice(ticker);
-        break;
-      case 'crypto':
-        price = await this.fetchCryptoPrice(ticker);
-        break;
-      default:
-        throw new Error(`Unsupported asset type: ${assetType}`);
-    }
+    const price = assetType === 'crypto' 
+      ? await this.fetchCryptoPrice(symbol) 
+      : await this.fetchStockPrice(symbol);
 
-    await this.cachePrice(ticker, price, assetType);
+    if (!price || price <= 0) throw new PriceNotFoundError(symbol);
+
+    await this.cachePrice(symbol, price, assetType);
     return price;
   }
 
-
   async fetchStockPrice(ticker) {
-    if (!this.apiKeys.alphaVantage) {
-      throw new Error('ALPHA_VANTAGE_API_KEY is not configured');
-    }
-
-    const url = 'https://www.alphavantage.co/query';
-    const params = {
-      function: 'GLOBAL_QUOTE',
-      symbol: ticker,
-      apikey: this.apiKeys.alphaVantage
-    };
+    const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
+    if (!apiKey) throw new Error('API Key missing');
 
     try {
-      const response = await axios.get(url, { params, timeout: 10000 });
-      
-      if (response.data.Note) {
-        throw new RateLimitError('Alpha Vantage rate limit reached. Please try again later.');
+      const { data } = await axios.get('https://www.alphavantage.co/query', {
+        params: { function: 'GLOBAL_QUOTE', symbol: ticker, apikey: apiKey },
+        timeout: 10000
+      });
+
+      if (data.Note || data.Information || data['Information']) {
+        throw new RateLimitError('Alpha Vantage limit reached');
       }
 
-      const quote = response.data['Global Quote'];
+      const price = parseFloat(data['Global Quote']?.['05. price']);
+      if (isNaN(price)) throw new PriceNotFoundError(ticker);
       
-      if (!quote || !quote['05. price']) {
-        throw new PriceNotFoundError(ticker);
-      }
-
-      return parseFloat(quote['05. price']);
+      return price;
     } catch (error) {
-      if (error.response?.status === 429) {
-        throw new RateLimitError('Alpha Vantage rate limit reached');
-      }
-      if (error instanceof PriceNotFoundError || error instanceof RateLimitError) {
-        throw error;
-      }
-      throw new Error(`Failed to fetch stock price for ${ticker}: ${error.message}`);
+      if (error instanceof RateLimitError) throw error;
+      throw new Error(`Stock fetch failed: ${error.message}`);
     }
   }
-
 
   async fetchCryptoPrice(ticker) {
-    const coinId = this.cryptoTickerToCoinId(ticker);
-    const url = 'https://api.coingecko.com/api/v3/simple/price';
-    const params = {
-      ids: coinId,
-      vs_currencies: 'usd'
-    };
-
+    const coinId = this.cryptoMapping[ticker] || ticker.toLowerCase();
     try {
-      const response = await axios.get(url, { params, timeout: 10000 });
-      
-      if (!response.data[coinId] || !response.data[coinId].usd) {
-        throw new PriceNotFoundError(ticker);
-      }
-      
-      return response.data[coinId].usd;
+      const { data } = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
+        params: { ids: coinId, vs_currencies: 'usd' }
+      });
+      const price = data[coinId]?.usd;
+      if (!price) throw new PriceNotFoundError(ticker);
+      return price;
     } catch (error) {
-      if (error.response?.status === 429) {
-        throw new RateLimitError('CoinGecko rate limit reached');
-      }
-      if (error instanceof PriceNotFoundError || error instanceof RateLimitError) {
-        throw error;
-      }
-      throw new Error(`Failed to fetch crypto price for ${ticker}: ${error.message}`);
+      if (error.response?.status === 429) throw new RateLimitError('CoinGecko Busy');
+      throw error;
     }
   }
 
+  async fetchBatchPrices(tickers) {
+    const results = {};
+    const stocks = tickers.filter(t => t.assetType !== 'crypto');
+    const cryptos = tickers.filter(t => t.assetType === 'crypto');
+
+    // Sequential for stocks
+    for (const [index, s] of stocks.entries()) {
+      try {
+        results[s.ticker] = await this.fetchPrice(s.ticker, s.assetType);
+        if (index < stocks.length - 1) await new Promise(r => setTimeout(r, this.rateLimitDelay));
+      } catch (e) {
+        results[s.ticker] = null;
+      }
+    }
+
+    // Batch for cryptos
+    if (cryptos.length > 0) {
+      const ids = cryptos.map(c => this.cryptoMapping[c.ticker] || c.ticker.toLowerCase()).join(',');
+      try {
+        const { data } = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
+          params: { ids, vs_currencies: 'usd' }
+        });
+        cryptos.forEach(c => {
+          const id = this.cryptoMapping[c.ticker] || c.ticker.toLowerCase();
+          results[c.ticker] = data[id]?.usd || null;
+        });
+      } catch (e) { console.error("Crypto batch failed", e.message); }
+    }
+    return results;
+  }
 
   async getCachedPrice(ticker) {
-    if (this.cache.has(ticker)) {
-      const cached = this.cache.get(ticker);
-      if (Date.now() - cached.timestamp < this.cacheTTL) {
-        return cached.price;
-      } else {
-        this.cache.delete(ticker);
-      }
-    }
+    const mem = this.cache.get(ticker);
+    if (mem && (Date.now() - mem.timestamp < this.cacheTTL)) return mem.price;
 
-    try {
-      const dbCache = await PriceCache.findOne({ ticker });
-      if (dbCache) {
-        this.setCacheEntry(ticker, dbCache.price);
-        return dbCache.price;
-      }
-    } catch (error) {
-      console.error('Error reading from price cache:', error);
+    const db = await PriceCache.findOne({ ticker });
+    if (db && (Date.now() - new Date(db.fetchedAt).getTime() < this.cacheTTL)) {
+      this.cache.set(ticker, { price: db.price, timestamp: Date.now() });
+      return db.price;
     }
-
     return null;
   }
 
-
   async cachePrice(ticker, price, assetType) {
-    this.setCacheEntry(ticker, price);
-
-    try {
-      await PriceCache.findOneAndUpdate(
-        { ticker },
-        { 
-          ticker: ticker.toUpperCase(), 
-          price, 
-          assetType, 
-          fetchedAt: new Date(),
-          source: 'api'
-        },
-        { upsert: true, new: true }
-      );
-    } catch (error) {
-      console.error('Error caching price to database:', error);
-    }
+    this.cache.set(ticker, { price, timestamp: Date.now() });
+    await PriceCache.findOneAndUpdate(
+      { ticker },
+      { price, assetType, fetchedAt: new Date(), source: 'api' },
+      { upsert: true }
+    ).catch(e => console.error("DB Cache Error", e.message));
   }
-
-  setCacheEntry(ticker, price) {
-    if (this.cache.size >= this.maxCacheSize) {
-      const firstKey = this.cache.keys().next().value;
-      this.cache.delete(firstKey);
-    }
-    
-    this.cache.set(ticker, { 
-      price, 
-      timestamp: Date.now() 
-    });
-  }
-
 
   startCacheCleanup() {
     setInterval(() => {
       const now = Date.now();
-      const expiredKeys = [];
-      
-      for (const [ticker, data] of this.cache.entries()) {
-        if (now - data.timestamp > this.cacheTTL) {
-          expiredKeys.push(ticker);
-        }
-      }
-      
-      expiredKeys.forEach(key => this.cache.delete(key));
-      
-      if (expiredKeys.length > 0) {
-        console.log(`[Cache Cleanup] Removed ${expiredKeys.length} expired entries`);
+      for (const [k, v] of this.cache) {
+        if (now - v.timestamp > this.cacheTTL) this.cache.delete(k);
       }
     }, this.cacheTTL);
-  }
-
-
-  async fetchBatchPrices(tickers) {
-    const results = {};
-    
-    const stocks = tickers.filter(t => t.assetType !== 'crypto');
-    const cryptos = tickers.filter(t => t.assetType === 'crypto');
-
-    if (stocks.length > 0) {
-      console.log(`Fetching ${stocks.length} stock prices...`);
-      
-      for (let i = 0; i < stocks.length; i++) {
-        const { ticker, assetType } = stocks[i];
-        try {
-          results[ticker] = await this.fetchPrice(ticker, assetType);
-          
-          if (i < stocks.length - 1) {
-            await this.delay(this.rateLimitDelay);
-          }
-        } catch (err) {
-          console.error(`Failed to fetch ${ticker}:`, err.message);
-          results[ticker] = null;
-        }
-      }
-    }
-
-    if (cryptos.length > 0) {
-      console.log(`Fetching ${cryptos.length} crypto prices...`);
-      
-      try {
-        const coinIds = cryptos.map(c => this.cryptoTickerToCoinId(c.ticker));
-        const uniqueCoinIds = [...new Set(coinIds)];
-        
-        const url = 'https://api.coingecko.com/api/v3/simple/price';
-        const response = await axios.get(url, {
-          params: {
-            ids: uniqueCoinIds.join(','),
-            vs_currencies: 'usd'
-          },
-          timeout: 15000
-        });
-        
-        cryptos.forEach(({ ticker }) => {
-          const coinId = this.cryptoTickerToCoinId(ticker);
-          const price = response.data[coinId]?.usd;
-          
-          if (price) {
-            results[ticker] = price;
-            this.cachePrice(ticker, price, 'crypto').catch(err => {
-              console.error(`Failed to cache ${ticker}:`, err.message);
-            });
-          } else {
-            results[ticker] = null;
-          }
-        });
-      } catch (err) {
-        console.error('Crypto batch fetch failed:', err.message);
-        cryptos.forEach(({ ticker }) => {
-          results[ticker] = null;
-        });
-      }
-    }
-
-    return results;
-  }
-
-
-  cryptoTickerToCoinId(ticker) {
-    const mapping = {
-      'BTC': 'bitcoin',
-      'ETH': 'ethereum',
-      'BNB': 'binancecoin',
-      'USDT': 'tether',
-      'USDC': 'usd-coin',
-      'XRP': 'ripple',
-      'ADA': 'cardano',
-      'DOGE': 'dogecoin',
-      'SOL': 'solana',
-      'MATIC': 'matic-network',
-      'DOT': 'polkadot',
-      'LINK': 'chainlink',
-      'UNI': 'uniswap',
-      'AVAX': 'avalanche-2',
-      'LTC': 'litecoin',
-    };
-    
-    const coinId = mapping[ticker.toUpperCase()];
-    
-    if (!coinId) {
-      throw new PriceNotFoundError(`Unsupported cryptocurrency: ${ticker}. Please add mapping.`);
-    }
-    
-    return coinId;
-  }
-
-  delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-
-  clearCache() {
-    this.cache.clear();
-    console.log('[Cache] In-memory cache cleared');
   }
 }
 

@@ -38,15 +38,4 @@ app.use('/api/portfolios', portfolioRoutes);
 app.use('/api/holdings', holdingRoutes);
 app.use('/api/prices', priceRoutes);
 
-// 404 & Error Handlers
-app.use((req, res) => {
-  res.status(404).json({ error: 'Endpoint not found', path: req.path });
-});
-
-app.use((err, req, res, next) => {
-  res.status(err.status || 500).json({
-    error: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message
-  });
-});
-
 export default app;

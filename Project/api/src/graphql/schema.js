@@ -21,8 +21,6 @@ export default `#graphql
     dailyChange: Float!
     lastUpdated: String!
     createdAt: String!
-    
-    # Nested data - this is where GraphQL shines
     holdings: [Holding!]!
     riskMetrics: RiskMetrics
     stats: PortfolioStats!
@@ -38,14 +36,10 @@ export default `#graphql
     currentPrice: Float
     lastPriceUpdate: String
     priceSource: PriceSource
-    
-    # Calculated fields
     currentValue: Float!
     totalCost: Float!
     profitLoss: Float!
     profitLossPercent: Float!
-    
-    # Nested data
     sentiment: SentimentData
     priceHistory: [PricePoint!]
   }
@@ -125,28 +119,22 @@ export default `#graphql
 
   # Queries
   type Query {
-    # User queries
     me: User
-
-    # Portfolio queries
     portfolio(id: ID!): Portfolio
     portfolios(filter: PortfolioFilter): [Portfolio!]!
     
-    # This is the MAIN GraphQL use case - dashboard data in ONE query
-    dashboardData: DashboardData!
+    # Refactored dashboardData query with optional limits
+    dashboardData(
+      portfolioLimit: Int
+      topHoldingsLimit: Int
+    ): DashboardData!
     
-    # Holdings queries
     holding(id: ID!): Holding
     holdings(filter: HoldingFilter!): [Holding!]!
-    
-    # Stats queries
     portfolioStats(portfolioId: ID): PortfolioStats!
-    
-    # Price queries
     tickerPrice(ticker: String!, assetType: AssetType!): TickerPrice
   }
 
-  # The killer feature - get everything for dashboard in one request
   type DashboardData {
     user: User!
     portfolios: [Portfolio!]!
@@ -171,9 +159,8 @@ export default `#graphql
     timestamp: String!
   }
 
-  # Mutations (optional - can keep these in REST)
+  # Mutations
   type Mutation {
-    # These could stay in REST, but included for completeness
     updateUserPreferences(alertThreshold: Float, emailEnabled: Boolean): User
     refreshHoldingPrice(id: ID!): Holding
     refreshPortfolioPrices(id: ID!): Portfolio

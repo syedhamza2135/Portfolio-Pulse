@@ -1,4 +1,4 @@
-import { ApolloProvider } from '@apollo/client';
+import { ApolloProvider } from '@apollo/client/react';
 import { useAuth } from "./hooks/useAuth";
 import AppRouter from "./routes/AppRouter";
 import Navbar from "./components/layout/Navbar";

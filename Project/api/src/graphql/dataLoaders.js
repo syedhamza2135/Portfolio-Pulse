@@ -1,58 +1,39 @@
 import DataLoader from "dataloader";
 import Holding from "../models/holdings.js";
 import RiskMetrics from "../models/riskMetrics.js";
+import SentimentData from "../models/sentimentData.js";
 
 export function createLoaders() {
-  const holdingsByPortfolioLoader = new DataLoader(async (portfolioIds) => {
-    const holdings = await Holding.find({
-      portfolioId: { $in: portfolioIds },
-    }).lean();
-
-    const holdingMap = new Map();
-    holdings.forEach((holding) => {
-      const id = holding.portfolioId.toString();
-      if (!holdingMap.has(id)) {
-        holdingMap.set(id, []);
-      }
-      holdingMap.get(id).push(holding);
+  const holdingsByPortfolio = new DataLoader(async (portfolioIds) => {
+    const holdings = await Holding.find({ portfolioId: { $in: portfolioIds } }).lean();
+    const map = new Map();
+    holdings.forEach((h) => {
+      const id = h.portfolioId.toString();
+      if (!map.has(id)) map.set(id, []);
+      map.get(id).push(h);
     });
-
-    return portfolioIds.map((id) => holdingMap.get(id.toString()) || []);
+    return portfolioIds.map((id) => map.get(id.toString()) || []);
   });
 
-  const riskMetricsByPortfolioLoader = new DataLoader(async (portfolioIds) => {
-    const riskMetrics = await RiskMetrics.find({
-      portfolioId: { $in: portfolioIds },
-    })
-      .sort({ calculatedAt: -1 })
-      .lean();
+  const riskMetricsByPortfolio = new DataLoader(async (portfolioIds) => {
+    const metrics = await RiskMetrics.find({ portfolioId: { $in: portfolioIds } }).sort({ calculatedAt: -1 }).lean();
+    const map = new Map();
+    metrics.forEach((m) => map.set(m.portfolioId.toString(), m));
+    return portfolioIds.map((id) => map.get(id.toString()) || null);
+  });
 
-    const metricsMap = new Map();
-    riskMetrics.forEach((metric) => {
-      const id = metric.portfolioId.toString();
-      if (!metricsMap.has(id)) {
-        metricsMap.set(id, metric);
-      }
+  const sentimentByTicker = new DataLoader(async (tickers) => {
+    const data = await SentimentData.find({ ticker: { $in: tickers } }).sort({ calculatedAt: -1 });
+    const map = new Map();
+    data.forEach((d) => {
+      if (!map.has(d.ticker)) map.set(d.ticker, d);
     });
-
-    return portfolioIds.map((id) => metricsMap.get(id.toString()) || null);
+    return tickers.map((t) => map.get(t) || null);
   });
 
   return {
-    holdingsByPortfolio: holdingsByPortfolioLoader,
-    riskMetricsByPortfolio: riskMetricsByPortfolioLoader,
+    holdingsByPortfolio,
+    riskMetricsByPortfolio,
+    sentimentByTicker,
   };
 }
-
-/**
- * Usage in resolvers:
- *
- * Portfolio: {
- *   holdings: async (portfolio, _, { loaders }) => {
- *     return loaders.holdingsByPortfolio.load(portfolio._id);
- *   },
- *   riskMetrics: async (portfolio, _, { loaders }) => {
- *     return loaders.riskMetricsByPortfolio.load(portfolio._id);
- *   }
- * }
- */
