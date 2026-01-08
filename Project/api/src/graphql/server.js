@@ -1,6 +1,6 @@
 import { ApolloServer } from '@apollo/server';
 import { ApolloServerPluginDrainHttpServer } from '@apollo/server/plugin/drainHttpServer';
-import { expressMiddleware } from '@apollo/server/express4';
+import { expressMiddleware } from '@as-integrations/express4';
 import { createComplexityLimitRule } from 'graphql-validation-complexity';
 import jwt from 'jsonwebtoken';
 import typeDefs from './schema.js';

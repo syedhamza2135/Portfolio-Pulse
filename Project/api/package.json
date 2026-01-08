@@ -16,7 +16,8 @@
     "python:install": "cd sentiment_service && pip install -r requirements.txt"
   },
   "dependencies": {
-    "@apollo/server": "^4.13.2",
+    "@apollo/server": "^5.2.0",
+    "@as-integrations/express4": "^1.1.2",
     "@sendgrid/mail": "^8.1.6",
     "axios": "^1.7.9",
     "bcrypt": "^5.1.1",
