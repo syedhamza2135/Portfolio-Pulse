@@ -28,7 +28,17 @@ const portfolioSchema = new mongoose.Schema({
         type: Date, 
         default: Date.now
     }
-}, {timestamps: true});
+}, {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+});
+
+portfolioSchema.virtual('returnPercent').get(function() {
+    if (this.totalValue === 0) return 0;
+    const investment = this.totalValue - this.dailyChange;
+    return investment > 0 ? (this.dailyChange / investment) * 100 : 0;
+});
 
 portfolioSchema.index({ userId: 1, createdAt: -1 });
 

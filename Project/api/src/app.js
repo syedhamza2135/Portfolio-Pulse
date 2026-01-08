@@ -42,4 +42,20 @@ app.use('/api/prices', priceRoutes);
 app.use('/api/sentiment', sentimentRoutes);
 app.use('/api/risk', riskRoutes);
 
+// Error Handlers
+app.use((req, res) => {
+  res.status(404).json({ error: 'Endpoint not found', path: req.path });
+});
+
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  
+  const isDev = process.env.NODE_ENV !== 'production';
+  
+  res.status(err.status || 500).json({
+    error: isDev ? err.message : 'Internal server error',
+    ...(isDev && { stack: err.stack })
+  });
+});
+
 export default app;

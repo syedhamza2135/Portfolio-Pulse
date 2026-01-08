@@ -1,57 +1,36 @@
 import rateLimit from 'express-rate-limit';
 
-// Rate limiter for authentication endpoints
+const getRetryAfter = (req) => {
+  if (!req.rateLimit?.resetTime) return 900;
+  return Math.ceil((new Date(req.rateLimit.resetTime).getTime() - Date.now()) / 1000);
+};
+
 export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 requests per windowMs
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 5,
   message: { error: 'Too many authentication attempts. Please try again in 15 minutes.' },
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  skipSuccessfulRequests: false, // Count successful requests
-  skipFailedRequests: false, // Count failed requests
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  skipFailedRequests: false,
   handler: (req, res) => {
-    const retryAfter = req.rateLimit?.resetTime 
-  ? Math.ceil((new Date(req.rateLimit.resetTime).getTime() - Date.now()) / 1000)
-  : 900;
     res.status(429).json({
       error: 'Too many attempts. Please try again in 15 minutes.',
-      retryAfter
+      retryAfter: getRetryAfter(req)
     });
   }
 });
 
-// General API rate limiter
 export const apiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 100, // Limit each IP to 100 requests per minute
+  windowMs: parseInt(process.env.API_RATE_LIMIT_WINDOW_MS) || 1 * 60 * 1000,
+  max: parseInt(process.env.API_RATE_LIMIT_MAX_REQUESTS) || 100,
   message: { error: 'Too many requests. Please slow down.' },
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res) => {
-    const retryAfter = req.rateLimit?.resetTime 
-  ? Math.ceil((new Date(req.rateLimit.resetTime).getTime() - Date.now()) / 1000)
-  : 60;
+    const retryAfter = Math.ceil((req.rateLimit.resetTime - Date.now()) / 1000) || 60;
     res.status(429).json({
       error: 'Too many requests. Please slow down.',
-      retryAfter
-    });
-  }
-});
-
-// Strict limiter for sensitive operations
-export const strictLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10, // Limit each IP to 10 requests per hour
-  message: { error: 'Too many attempts. Please try again later.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  skipSuccessfulRequests: true, // Only count failed attempts
-  handler: (req, res) => {
-    const retryAfter = req.rateLimit?.resetTime 
-  ? Math.ceil((new Date(req.rateLimit.resetTime).getTime() - Date.now()) / 1000)
-  : 3600;
-    res.status(429).json({
-      error: 'Too many failed attempts. Please try again in 1 hour.',
       retryAfter
     });
   }

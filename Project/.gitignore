@@ -1,0 +1,362 @@
+# =============================================================================
+# PortfolioPulse .gitignore
+# Comprehensive ignore rules for Node.js + Python + MongoDB project
+# =============================================================================
+
+# ============================================
+# CRITICAL: Node.js Dependencies
+# ============================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# ============================================
+# CRITICAL: Python Dependencies & Environments
+# ============================================
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.Python
+
+# Python Package Directories
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# ============================================
+# CRITICAL: Environment Variables & Secrets
+# ============================================
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.production
+.flaskenv
+*.key
+*.pem
+*.cert
+*.crt
+secrets.json
+config/secrets.json
+
+# ============================================
+# CRITICAL: AI/ML Model Caches & Downloads
+# ============================================
+# Hugging Face Transformers cache
+.cache/
+transformers/
+.transformers_cache/
+models/
+outputs/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.pb
+
+# PyTorch
+torch_extensions/
+
+# TensorFlow
+*.tfrecord
+*.tfevents.*
+
+# ============================================
+# Database Files
+# ============================================
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# MongoDB dumps (if you create local backups)
+dump/
+*.bson
+*.json.gz
+
+# ============================================
+# Logs & Runtime Data
+# ============================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Directory for instrumented libs (coverage tools)
+lib-cov/
+.nyc_output/
+
+# ============================================
+# IDE & Editor Files
+# ============================================
+# VSCode
+.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+.history/
+*.code-workspace
+
+# JetBrains IDEs (WebStorm, PyCharm, IntelliJ)
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Vim
+*.swp
+*.swo
+*~
+.vim/
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# ============================================
+# Operating System Files
+# ============================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+.directory
+.Trash-*
+.nfs*
+
+# ============================================
+# Build & Compiled Output
+# ============================================
+# Node.js build output
+dist/
+dist-ssr/
+build/
+.next/
+out/
+.nuxt/
+.cache/
+.parcel-cache/
+.output/
+
+# Compiled binary addons (Node.js)
+build/Release/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# ============================================
+# Package Manager Files
+# ============================================
+# npm
+package-lock.json  # Optional: Remove this line if you want to commit it
+.npm/
+
+# Yarn
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
+yarn.lock  # Optional: Remove this line if you want to commit it
+
+# pnpm
+.pnpm-store/
+pnpm-lock.yaml  # Optional: Remove this line if you want to commit it
+
+# ============================================
+# Testing
+# ============================================
+.jest/
+jest-coverage/
+coverage/
+*.lcov
+.eslintcache
+.stylelintcache
+
+# ============================================
+# Temporary Files
+# ============================================
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+
+# ============================================
+# Documentation Build Output
+# ============================================
+docs/_build/
+docs/.doctrees/
+site/
+
+# ============================================
+# Serverless & Cloud
+# ============================================
+.serverless/
+.vercel/
+.netlify/
+.firebase/
+
+# ============================================
+# Docker (Optional - if you add Docker later)
+# ============================================
+# Uncomment these if you add Docker support
+# docker-compose.override.yml
+# .dockerignore
+
+# ============================================
+# Misc
+# ============================================
+.fusebox/
+.dynamodb/
+.tern-port
+.vite/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Optional eslint cache
+.eslintcache
+
+# Optional stylelint cache
+.stylelintcache
+
+# Snowpack dependency directory
+web_modules/
+
+# ============================================
+# Project-Specific Ignores
+# ============================================
+# Price/sentiment cache files (if you store locally)
+cache/
+*.cache
+
+# Local testing data
+test-data/
+mock-data/
+
+# Local database dumps
+backups/
+mongodb-dumps/
+
+# Performance profiling
+*.cpuprofile
+*.heapprofile
+*.heapsnapshot
+
+# API documentation generated files
+api-docs/
+swagger.json
+
+# =============================================================================
+# END OF .gitignore
+# =============================================================================

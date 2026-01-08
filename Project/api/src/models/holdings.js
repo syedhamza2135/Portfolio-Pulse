@@ -41,7 +41,10 @@ const holdingSchema = new mongoose.Schema({
     enum: ['manual', 'api', 'scheduled'],
     default: 'manual' 
   }
-}, { timestamps: true });
+}, { 
+  timestamps: true,
+  optimisticConcurrency: true
+});
 
 holdingSchema.index({ portfolioId: 1, ticker: 1 }, { unique: true });
 

@@ -1,28 +1,29 @@
-# Python Virtual Environment
+# Virtual environment (backup - main .gitignore already covers this)
 venv/
 .venv/
 env/
 
-# Python Bytecode & Cache
+# Python cache
 __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
 
-# Environment Variables & Secrets
+# Environment files
 .env
 .flaskenv
 
-# Hugging Face & Model Caches
-# (Though usually stored in User home, good to block local downloads)
+# Model cache & downloads
 .cache/
 models/
 outputs/
+*.pt
+*.pth
 
-# OS Specific
-.DS_Store
-Thumbs.db
-
-# IDEs
+# IDE
 .vscode/
 .idea/
+
+# OS
+.DS_Store
+Thumbs.db

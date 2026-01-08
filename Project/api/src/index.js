@@ -57,19 +57,8 @@ async function start() {
       console.log('✓ Alert monitoring job initialized');
     }
 
-    // 7. Error Handlers
-    app.use((req, res) => {
-      res.status(404).json({ error: 'Endpoint not found', path: req.path });
-    });
 
-    app.use((err, req, res, next) => {
-      console.error('Unhandled error:', err);
-      res.status(err.status || 500).json({
-        error: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
-      });
-    });
-
-    // 8. Start Server
+    // 7. Start Server
     httpServer.listen(config.port, () => {
       console.log(`
 ╔═════════════════════════════════════════════════════════════╗
@@ -102,7 +91,7 @@ async function start() {
   }
 }
 
-// Global Rejection Handler for CS best practice
+// Global Rejection Handler
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled Rejection:', reason);
 });

@@ -46,8 +46,8 @@ export function validateEnvironment() {
   }
 
   // Validate MONGO_URI format
-  if (!process.env.MONGO_URI.startsWith('mongodb://') && 
-      !process.env.MONGO_URI.startsWith('mongodb+srv://')) {
+  const mongoUriPattern = /^mongodb(\+srv)?:\/\/.+/i;
+  if (!mongoUriPattern.test(process.env.MONGO_URI)) {
     throw new Error('MONGO_URI must start with mongodb:// or mongodb+srv://');
   }
 

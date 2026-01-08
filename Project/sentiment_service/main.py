@@ -151,10 +151,17 @@ async def batch_analyze(request: BatchSentimentRequest):
 
 @app.get("/health")
 async def health():
+    uptime = round(time.time() - state.startup_time, 2) if state.startup_time else 0
+    
     return {
         "status": "healthy" if state.model else "initializing",
+        "model_loaded": state.model is not None,
+        "model_name": MODEL_NAME,
         "device": str(DEVICE),
-        "uptime": round(time.time() - state.startup_time, 2) if state.startup_time else 0
+        "uptime_seconds": uptime,
+        "uptime_formatted": f"{uptime // 3600:.0f}h {(uptime % 3600) // 60:.0f}m",
+        "memory_usage_mb": round(torch.cuda.memory_allocated() / 1024**2, 2) if torch.cuda.is_available() else 0,
+        "timestamp": time.time()
     }
 
 if __name__ == "__main__":
