@@ -76,10 +76,10 @@ async function start() {
 ║                                                             ║
 ║             PortfolioPulse API Server                       ║
 ║                                                             ║
-║     REST API:   http://localhost:${config.port}             ║
-║     GraphQL:    http://localhost:${config.port}/graphql     ║
-║                                                             ║
-║     Environment: ${config.nodeEnv.toUpperCase().padEnd(39)} ║
+     REST API:   http://localhost:${config.port}             
+     GraphQL:    http://localhost:${config.port}/graphql     
+                                                             
+     Environment: ${config.nodeEnv.toUpperCase().padEnd(39)} 
 ║                                                             ║
 ╚═════════════════════════════════════════════════════════════╝
       `);

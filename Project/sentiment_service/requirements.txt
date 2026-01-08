@@ -1,0 +1,24 @@
+# --- Existing Core ---
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+transformers==4.35.2
+torch==2.1.1
+sentencepiece==0.1.99
+python-multipart==0.0.6
+aiofiles==23.2.1
+
+# --- Missing Essentials ---
+# 1. Faster Weights loading (for FinBERT)
+safetensors==0.4.1  
+
+# 2. HTTP Client (if you need to fetch news for batch analysis)
+httpx==0.25.1
+
+# 3. ML Utilities
+accelerate==0.25.0  # Simplifies running model on CPU/GPU efficiently
+numpy<2.0.0         # Requirement for many transformer operations
+
+# 4. Monitoring & Cleanliness
+python-dotenv==1.0.0 # Loads your .env file

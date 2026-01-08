@@ -1,0 +1,28 @@
+# Python Virtual Environment
+venv/
+.venv/
+env/
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Environment Variables & Secrets
+.env
+.flaskenv
+
+# Hugging Face & Model Caches
+# (Though usually stored in User home, good to block local downloads)
+.cache/
+models/
+outputs/
+
+# OS Specific
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/

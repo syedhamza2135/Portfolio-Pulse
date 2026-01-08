@@ -5,49 +5,71 @@ import newsFetcherService from './newsFetcherService.js';
 class SentimentAnalysisService {
   constructor() {
     this.pythonServiceUrl = process.env.PYTHON_SENTIMENT_URL || 'http://localhost:8000';
-    this.timeout = 5000; // 5 seconds per PRD
+    this.timeout = 5000;
     this.maxRetries = 3;
     this.circuitBreakerThreshold = 10;
     this.consecutiveFailures = 0;
     this.circuitOpen = false;
     this.circuitResetTime = null;
+    this.lastHealthCheck = null;
+    this.healthCheckInterval = 30000; // 30 seconds
   }
 
   /**
-   * Analyzes sentiment for a specific ticker
-   * Fetches news, calls Python service, caches results
+   * FIX: Improved sentiment analysis with better error recovery
    */
   async analyzeTicker(ticker, forceRefresh = false) {
     const symbol = ticker.toUpperCase();
 
     try {
-      // Check if circuit breaker is open
+      // Check circuit breaker
       if (this.isCircuitOpen()) {
         console.warn('[Sentiment] Circuit breaker open, using cached data');
-        return this.getCachedSentiment(symbol);
+        return await this.getCachedSentiment(symbol);
       }
 
       // Get news articles
       const newsData = await newsFetcherService.fetchNewsForTicker(symbol, forceRefresh);
       
-      if (!newsData.articles || newsData.articles.length === 0) {
+      // Handle empty or error results
+      if (!newsData || !newsData.articles || newsData.articles.length === 0) {
         console.log(`[Sentiment] No articles for ${symbol}, returning neutral`);
+        
+        // Check if we have old cached data
+        const cached = await this.getCachedSentiment(symbol);
+        if (cached && cached.articles && cached.articles.length > 0) {
+          console.log(`[Sentiment] Using old cached data for ${symbol}`);
+          return cached;
+        }
+        
         return {
           ticker: symbol,
           sentimentScore: 0,
           articles: [],
-          calculatedAt: new Date()
+          calculatedAt: new Date(),
+          status: 'no_articles'
         };
       }
 
       // Analyze sentiment for each article
       const articlesWithSentiment = await this.analyzeArticles(newsData.articles);
       
-      // Calculate aggregate sentiment score
-      const totalScore = articlesWithSentiment.reduce((sum, a) => sum + a.sentiment, 0);
-      const avgScore = articlesWithSentiment.length > 0 
-        ? totalScore / articlesWithSentiment.length 
-        : 0;
+      // Calculate aggregate sentiment
+      const validArticles = articlesWithSentiment.filter(a => a.sentiment !== undefined);
+      
+      if (validArticles.length === 0) {
+        console.warn(`[Sentiment] No valid sentiment scores for ${symbol}`);
+        return {
+          ticker: symbol,
+          sentimentScore: 0,
+          articles: articlesWithSentiment,
+          calculatedAt: new Date(),
+          status: 'analysis_failed'
+        };
+      }
+
+      const totalScore = validArticles.reduce((sum, a) => sum + a.sentiment, 0);
+      const avgScore = totalScore / validArticles.length;
 
       // Save to database
       const sentimentData = await SentimentData.findOneAndUpdate(
@@ -58,7 +80,7 @@ class SentimentAnalysisService {
           articles: articlesWithSentiment.map(a => ({
             title: a.title,
             url: a.url,
-            sentiment: Math.round(a.sentiment * 100) / 100,
+            sentiment: a.sentiment !== undefined ? Math.round(a.sentiment * 100) / 100 : 0,
             publishedAt: a.publishedAt
           })),
           calculatedAt: new Date()
@@ -70,8 +92,12 @@ class SentimentAnalysisService {
       this.consecutiveFailures = 0;
       this.circuitOpen = false;
 
-      console.log(`[Sentiment] ✓ ${symbol}: ${avgScore.toFixed(2)} (${articlesWithSentiment.length} articles)`);
-      return sentimentData;
+      console.log(`[Sentiment] ✓ ${symbol}: ${avgScore.toFixed(2)} (${validArticles.length}/${articlesWithSentiment.length} articles)`);
+      
+      return {
+        ...sentimentData.toObject(),
+        status: 'success'
+      };
 
     } catch (error) {
       console.error(`[Sentiment] Error analyzing ${symbol}:`, error.message);
@@ -83,35 +109,52 @@ class SentimentAnalysisService {
       }
 
       // Return cached data as fallback
-      return this.getCachedSentiment(symbol);
+      const cached = await this.getCachedSentiment(symbol);
+      return {
+        ...cached,
+        status: 'error',
+        error: error.message
+      };
     }
   }
 
   /**
-   * Analyzes sentiment for multiple articles using Python service
+   * FIX: Better article analysis with batch processing
    */
   async analyzeArticles(articles) {
+    if (!articles || articles.length === 0) {
+      return [];
+    }
+
     const results = [];
+    const batchSize = 5; // Process 5 articles at a time
 
-    for (const article of articles) {
-      try {
-        // Use title + description for analysis
-        const text = `${article.title}. ${article.description || ''}`.trim();
+    // Process in batches to avoid overwhelming Python service
+    for (let i = 0; i < articles.length; i += batchSize) {
+      const batch = articles.slice(i, i + batchSize);
+      
+      const batchResults = await Promise.allSettled(
+        batch.map(article => this.analyzeArticle(article))
+      );
+
+      batchResults.forEach((result, index) => {
+        const article = batch[index];
         
-        if (text.length < 10) {
-          results.push({ ...article, sentiment: 0 });
-          continue;
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
+        } else {
+          console.error(`[Sentiment] Failed to analyze article: ${article.title}`, result.reason?.message);
+          results.push({
+            ...article,
+            sentiment: 0,
+            error: true
+          });
         }
+      });
 
-        const sentiment = await this.callPythonService(text);
-        results.push({ ...article, sentiment });
-
-        // Small delay to avoid overwhelming Python service
-        await new Promise(r => setTimeout(r, 100));
-
-      } catch (error) {
-        console.error('[Sentiment] Article analysis failed:', error.message);
-        results.push({ ...article, sentiment: 0 }); // Neutral on error
+      // Delay between batches
+      if (i + batchSize < articles.length) {
+        await new Promise(r => setTimeout(r, 200));
       }
     }
 
@@ -119,18 +162,64 @@ class SentimentAnalysisService {
   }
 
   /**
-   * Calls Python FastAPI sentiment endpoint with retry logic
+   * FIX: Improved single article analysis
+   */
+  async analyzeArticle(article) {
+    try {
+      // Validate article data
+      if (!article || !article.title) {
+        return { ...article, sentiment: 0, error: true };
+      }
+
+      // Combine title and description for better context
+      const text = `${article.title}${article.description ? '. ' + article.description : ''}`.trim();
+      
+      if (text.length < 10) {
+        return { ...article, sentiment: 0, error: true };
+      }
+
+      // Call Python service
+      const sentiment = await this.callPythonService(text);
+      
+      return {
+        ...article,
+        sentiment: Math.round(sentiment * 100) / 100
+      };
+
+    } catch (error) {
+      console.error('[Sentiment] Article analysis error:', error.message);
+      return { ...article, sentiment: 0, error: true };
+    }
+  }
+
+  /**
+   * FIX: Improved Python service communication
    */
   async callPythonService(text, retries = this.maxRetries) {
     try {
+      // Check if service is healthy before calling
+      if (!(await this.isServiceHealthy())) {
+        throw new Error('Python service is not healthy');
+      }
+
       const response = await axios.post(
         `${this.pythonServiceUrl}/analyze`,
-        { text },
+        { text: text.substring(0, 2000) }, // Limit text length
         { 
           timeout: this.timeout,
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json' },
+          validateStatus: (status) => status < 500
         }
       );
+
+      // Handle different status codes
+      if (response.status === 503) {
+        throw new Error('Python service not ready');
+      }
+
+      if (response.status >= 400) {
+        throw new Error(`Python service HTTP ${response.status}`);
+      }
 
       if (!response.data || typeof response.data.sentiment !== 'number') {
         throw new Error('Invalid response from Python service');
@@ -140,19 +229,36 @@ class SentimentAnalysisService {
 
     } catch (error) {
       // Retry with exponential backoff
-      if (retries > 0 && error.code === 'ECONNREFUSED') {
-        const delay = (this.maxRetries - retries + 1) * 1000; // 1s, 2s, 3s
-        console.warn(`[Sentiment] Python service unavailable. Retrying in ${delay}ms...`);
+      if (retries > 0) {
+        const delay = (this.maxRetries - retries + 1) * 1000;
+        console.warn(`[Sentiment] Retrying in ${delay}ms (${retries} attempts left)...`);
         await new Promise(r => setTimeout(r, delay));
         return this.callPythonService(text, retries - 1);
       }
 
-      if (error.response?.status === 500) {
-        console.error('[Sentiment] Python service error:', error.response.data);
-      }
-
       throw error;
     }
+  }
+
+  /**
+   * FIX: Cached health check to avoid redundant requests
+   */
+  async isServiceHealthy() {
+    const now = Date.now();
+    
+    // Use cached health status if recent
+    if (this.lastHealthCheck && (now - this.lastHealthCheck.timestamp < this.healthCheckInterval)) {
+      return this.lastHealthCheck.healthy;
+    }
+
+    // Perform new health check
+    const healthy = await this.checkPythonServiceHealth();
+    this.lastHealthCheck = {
+      healthy,
+      timestamp: now
+    };
+
+    return healthy;
   }
 
   /**
@@ -166,15 +272,18 @@ class SentimentAnalysisService {
 
       if (cached) {
         console.log(`[Sentiment] Using cached data for ${ticker}`);
-        return cached;
+        return {
+          ...cached,
+          cached: true
+        };
       }
 
-      // Return neutral if no cache exists
       return {
         ticker,
         sentimentScore: 0,
         articles: [],
-        calculatedAt: new Date()
+        calculatedAt: new Date(),
+        cached: false
       };
 
     } catch (error) {
@@ -183,18 +292,21 @@ class SentimentAnalysisService {
         ticker,
         sentimentScore: 0,
         articles: [],
-        calculatedAt: new Date()
+        calculatedAt: new Date(),
+        error: true
       };
     }
   }
 
   /**
-   * Batch analyzes sentiment for multiple tickers
+   * FIX: Better batch processing with rate limiting
    */
   async analyzeBatchTickers(tickers) {
     const results = {};
     let processed = 0;
     let failed = 0;
+
+    console.log(`[Sentiment] Starting batch analysis for ${tickers.length} tickers`);
 
     for (const ticker of tickers) {
       try {
@@ -202,12 +314,21 @@ class SentimentAnalysisService {
         results[ticker] = sentiment;
         processed++;
 
-        // Delay between tickers to respect rate limits
+        // Progress logging
+        if (processed % 5 === 0) {
+          console.log(`[Sentiment] Progress: ${processed}/${tickers.length}`);
+        }
+
+        // Delay between tickers
         await new Promise(r => setTimeout(r, 2000));
 
       } catch (error) {
         console.error(`[Sentiment] Failed to analyze ${ticker}:`, error.message);
-        results[ticker] = null;
+        results[ticker] = {
+          ticker,
+          error: true,
+          errorMessage: error.message
+        };
         failed++;
       }
     }
@@ -217,14 +338,14 @@ class SentimentAnalysisService {
   }
 
   /**
-   * Circuit breaker pattern implementation
+   * Circuit breaker implementation
    */
   isCircuitOpen() {
     if (!this.circuitOpen) return false;
 
-    // Check if circuit should be reset (5 minutes per PRD)
-    if (Date.now() > this.circuitResetTime) {
-      console.log('[Sentiment] Circuit breaker reset - attempting reconnection');
+    // Auto-reset after 5 minutes
+    if (Date.now() >= this.circuitResetTime) {
+      console.log('[Sentiment] Circuit breaker auto-reset');
       this.circuitOpen = false;
       this.consecutiveFailures = 0;
       return false;
@@ -235,8 +356,8 @@ class SentimentAnalysisService {
 
   openCircuitBreaker() {
     this.circuitOpen = true;
-    this.circuitResetTime = Date.now() + (5 * 60 * 1000); // 5 minutes
-    console.error('[Sentiment] ⚠️ Circuit breaker opened - Python service appears down');
+    this.circuitResetTime = Date.now() + (5 * 60 * 1000);
+    console.error('[Sentiment] ⚠️ Circuit breaker OPENED - Python service appears down');
   }
 
   /**
@@ -246,10 +367,15 @@ class SentimentAnalysisService {
     try {
       const response = await axios.get(
         `${this.pythonServiceUrl}/health`,
-        { timeout: 3000 }
+        { 
+          timeout: 3000,
+          validateStatus: (status) => status === 200
+        }
       );
-      return response.status === 200;
+      
+      return response.data?.status === 'healthy' || response.data?.model_loaded === true;
     } catch (error) {
+      console.warn('[Sentiment] Health check failed:', error.message);
       return false;
     }
   }
@@ -264,8 +390,24 @@ class SentimentAnalysisService {
       consecutiveFailures: this.consecutiveFailures,
       circuitResetTime: this.circuitResetTime 
         ? new Date(this.circuitResetTime).toISOString()
+        : null,
+      lastHealthCheck: this.lastHealthCheck
+        ? {
+            healthy: this.lastHealthCheck.healthy,
+            timestamp: new Date(this.lastHealthCheck.timestamp).toISOString()
+          }
         : null
     };
+  }
+
+  /**
+   * Manual circuit breaker reset (for admin/testing)
+   */
+  resetCircuitBreaker() {
+    this.circuitOpen = false;
+    this.consecutiveFailures = 0;
+    this.circuitResetTime = null;
+    console.log('[Sentiment] Circuit breaker manually reset');
   }
 }
 
