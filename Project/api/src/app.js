@@ -9,6 +9,8 @@ import meRoutes from './routes/me.js';
 import portfolioRoutes from './routes/portfolioRoute.js';
 import holdingRoutes from './routes/holdingsRoute.js';
 import priceRoutes from './routes/priceRoute.js';
+import sentimentRoutes from './routes/sentimentRoute.js';
+import riskRoutes from './routes/riskRoute.js';
 
 const app = express();
 
@@ -37,5 +39,7 @@ app.use('/api', meRoutes);
 app.use('/api/portfolios', portfolioRoutes);
 app.use('/api/holdings', holdingRoutes);
 app.use('/api/prices', priceRoutes);
+app.use('/api/sentiment', sentimentRoutes);
+app.use('/api/risk', riskRoutes);
 
 export default app;
