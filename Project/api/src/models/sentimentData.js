@@ -12,6 +12,8 @@ const sentimentDataSchema = new mongoose.Schema({
   calculatedAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 
+sentimentDataSchema.index({ ticker: 1, calculatedAt: -1 });
+
 sentimentDataSchema.index({ calculatedAt: 1 }, { expireAfterSeconds: 86400 });
 
 export default mongoose.model('SentimentData', sentimentDataSchema);

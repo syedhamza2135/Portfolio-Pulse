@@ -51,6 +51,31 @@ async function verifyHoldingOwnership(holdingId, userId, session = null) {
   return { holding, portfolio };
 }
 
+async function updateHoldingWithRetry(holding, value, session, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      Object.assign(holding, value);
+      holding.updatedAt = new Date();
+
+      if (value.currentPrice !== undefined) {
+        holding.lastPriceUpdate = new Date();
+      }
+
+      await holding.save({ session });
+      return holding;
+    } catch (error) {
+      if (error.code === 112 && i < retries - 1) {
+        // WriteConflict
+        console.warn(`[Holding] Write conflict, retry ${i + 1}/${retries}`);
+        // Reload the holding
+        await holding.reload({ session });
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
 export async function getHoldings(req, res) {
   try {
     const { portfolioId } = req.query;
@@ -110,26 +135,41 @@ export async function getHoldingbyID(req, res) {
 
 export async function createHolding(req, res) {
   const session = await mongoose.startSession();
-  session.startTransaction();
+  const transactionOptions = {
+    readPreference: "primary",
+    readConcern: { level: "snapshot" },
+    writeConcern: { w: "majority" },
+    maxTimeMS: 10000, // 10 second timeout
+  };
+
+  session.startTransaction(transactionOptions);
 
   try {
-    const { error, value } = createHoldingSchema.validate(req.body);
-    if (error) {
-      await session.abortTransaction();
-      return res.status(400).json({ error: error.message });
-    }
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Transaction timeout")), 12000);
+    });
 
-    const userId = getUserId(req);
+    const operationPromise = (async () => {
+      const { error, value } = createHoldingSchema.validate(req.body);
+      if (error) {
+        await session.abortTransaction();
+        return res.status(400).json({ error: error.message });
+      }
 
-    await verifyPortfolioOwnership(value.portfolioId, userId, session);
+      const userId = getUserId(req);
 
-    value.ticker = value.ticker.toUpperCase();
-    const holding = await Holding.create([value], { session });
+      await verifyPortfolioOwnership(value.portfolioId, userId, session);
 
-    await recalculatePortfolioValues(value.portfolioId, session);
+      value.ticker = value.ticker.toUpperCase();
+      const holding = await Holding.create([value], { session });
 
-    await session.commitTransaction();
-    res.status(201).json(holding[0]);
+      await recalculatePortfolioValues(value.portfolioId, session);
+
+      await session.commitTransaction();
+      res.status(201).json(holding[0]);
+    })();
+
+    await Promise.race([operationPromise, timeoutPromise]);
   } catch (err) {
     await session.abortTransaction();
     console.error("Error creating holding:", err);
@@ -160,35 +200,50 @@ export async function createHolding(req, res) {
 
 export async function updateHolding(req, res) {
   const session = await mongoose.startSession();
-  session.startTransaction();
+  const transactionOptions = {
+    readPreference: "primary",
+    readConcern: { level: "snapshot" },
+    writeConcern: { w: "majority" },
+    maxTimeMS: 10000, // 10 second timeout
+  };
+
+  session.startTransaction(transactionOptions);
 
   try {
-    const { error, value } = updateHoldingSchema.validate(req.body);
-    if (error) {
-      await session.abortTransaction();
-      return res.status(400).json({ error: error.message });
-    }
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Transaction timeout")), 12000);
+    });
 
-    const userId = getUserId(req);
+    const operationPromise = (async () => {
+      const { error, value } = updateHoldingSchema.validate(req.body);
+      if (error) {
+        await session.abortTransaction();
+        return res.status(400).json({ error: error.message });
+      }
 
-    const { holding } = await verifyHoldingOwnership(
-      req.params.id,
-      userId,
-      session
-    );
+      const userId = getUserId(req);
 
-    Object.assign(holding, value);
-    holding.updatedAt = new Date();
+      const { holding } = await verifyHoldingOwnership(
+        req.params.id,
+        userId,
+        session
+      );
 
-    if (value.currentPrice !== undefined) {
-      holding.lastPriceUpdate = new Date();
-    }
+      Object.assign(holding, value);
+      holding.updatedAt = new Date();
 
-    await holding.save({ session });
-    await recalculatePortfolioValues(holding.portfolioId, session);
+      if (value.currentPrice !== undefined) {
+        holding.lastPriceUpdate = new Date();
+      }
 
-    await session.commitTransaction();
-    res.json(holding);
+      await updateHoldingWithRetry(holding, value, session);
+      await recalculatePortfolioValues(holding.portfolioId, session);
+
+      await session.commitTransaction();
+      res.json(holding);
+    })();
+
+    await Promise.race([operationPromise, timeoutPromise]);
   } catch (err) {
     await session.abortTransaction();
     console.error("Error updating holding:", err);
@@ -217,23 +272,38 @@ export async function updateHolding(req, res) {
 
 export async function deleteHolding(req, res) {
   const session = await mongoose.startSession();
-  session.startTransaction();
+  const transactionOptions = {
+    readPreference: "primary",
+    readConcern: { level: "snapshot" },
+    writeConcern: { w: "majority" },
+    maxTimeMS: 10000, // 10 second timeout
+  };
+
+  session.startTransaction(transactionOptions);
 
   try {
-    const userId = getUserId(req);
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Transaction timeout")), 12000);
+    });
 
-    const { holding } = await verifyHoldingOwnership(
-      req.params.id,
-      userId,
-      session
-    );
+    const operationPromise = (async () => {
+      const userId = getUserId(req);
 
-    const portfolioId = holding.portfolioId;
-    await holding.deleteOne({ session });
-    await recalculatePortfolioValues(portfolioId, session);
+      const { holding } = await verifyHoldingOwnership(
+        req.params.id,
+        userId,
+        session
+      );
 
-    await session.commitTransaction();
-    res.status(204).send();
+      const portfolioId = holding.portfolioId;
+      await holding.deleteOne({ session });
+      await recalculatePortfolioValues(portfolioId, session);
+
+      await session.commitTransaction();
+      res.status(204).send();
+    })();
+
+    await Promise.race([operationPromise, timeoutPromise]);
   } catch (err) {
     await session.abortTransaction();
     console.error("Error deleting holding:", err);

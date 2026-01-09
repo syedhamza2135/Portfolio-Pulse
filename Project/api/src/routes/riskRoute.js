@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import Joi from 'joi';
 import { requireAuth } from '../middleware/auth.js';
 import riskScoringService from '../services/riskScoringService.js';
 import { getUserId } from '../utils/authHelpers.js';
@@ -81,6 +82,16 @@ router.post('/portfolio/:portfolioId/calculate', requireAuth, async (req, res) =
  * POST /api/risk/portfolio/:portfolioId/simulate
  * Simulates risk impact of adding/removing holdings
  */
+
+const simulatedHoldingSchema = Joi.object({
+  ticker: Joi.string().uppercase().trim().max(10).pattern(/^[A-Z0-9]+$/).required(),
+  quantity: Joi.number().positive().max(1000000).required(),
+  averageCost: Joi.number().positive().max(1000000).required(),
+  assetType: Joi.string().valid('stock', 'crypto', 'etf').required(),
+  currentPrice: Joi.number().positive().max(1000000).optional()
+});
+
+
 router.post('/portfolio/:portfolioId/simulate', requireAuth, async (req, res) => {
   try {
     const { portfolioId } = req.params;
@@ -99,19 +110,28 @@ router.post('/portfolio/:portfolioId/simulate', requireAuth, async (req, res) =>
       });
     }
 
+    if (holdings.length > 100) {
+      return res.status(400).json({
+        error: 'Maximum 100 holdings allowed for simulation'
+      });
+    }
+
     // Validate holding structure
+    const validatedHoldings = [];
     for (const h of holdings) {
-      if (!h.ticker || !h.quantity || !h.averageCost || !h.assetType) {
+      const { error, value } = simulatedHoldingSchema.validate(h);
+      if (error) {
         return res.status(400).json({
-          error: 'Each holding must have: ticker, quantity, averageCost, assetType'
+          error: `Invalid holding: ${error.message}`
         });
       }
+      validatedHoldings.push(value);
     }
 
     // Simulate risk change
     const simulatedRisk = await riskScoringService.simulateRiskChange(
       portfolioId,
-      holdings
+      validatedHoldings
     );
 
     // Get current risk for comparison

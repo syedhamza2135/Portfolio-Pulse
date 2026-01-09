@@ -1,18 +1,18 @@
-import axios from 'axios';
-import PriceCache from '../models/priceCache.js';
+import axios from "axios";
+import PriceHistory from "../models/priceHistory.js";
 
 export class PriceNotFoundError extends Error {
   constructor(ticker) {
     super(`Price not found for ${ticker}`);
-    this.name = 'PriceNotFoundError';
+    this.name = "PriceNotFoundError";
     this.ticker = ticker;
   }
 }
 
 export class RateLimitError extends Error {
-  constructor(message = 'API limit reached') {
+  constructor(message = "API limit reached") {
     super(message);
-    this.name = 'RateLimitError';
+    this.name = "RateLimitError";
   }
 }
 
@@ -22,12 +22,20 @@ class PriceFetcherService {
     this.cacheTTL = 5 * 60 * 1000; // 5 minutes (align with PRD)
     this.rateLimitDelay = 15000; // Alpha Vantage: 1 call per 15s
     this.cleanupInterval = null; // Track interval for cleanup
-    
+
     this.cryptoMapping = {
-      BTC: 'bitcoin', ETH: 'ethereum', BNB: 'binancecoin',
-      USDT: 'tether', USDC: 'usd-coin', XRP: 'ripple',
-      SOL: 'solana', DOGE: 'dogecoin', ADA: 'cardano',
-      AVAX: 'avalanche-2', MATIC: 'matic-network', DOT: 'polkadot'
+      BTC: "bitcoin",
+      ETH: "ethereum",
+      BNB: "binancecoin",
+      USDT: "tether",
+      USDC: "usd-coin",
+      XRP: "ripple",
+      SOL: "solana",
+      DOGE: "dogecoin",
+      ADA: "cardano",
+      AVAX: "avalanche-2",
+      MATIC: "matic-network",
+      DOT: "polkadot",
     };
 
     this.startCacheCleanup();
@@ -39,7 +47,7 @@ class PriceFetcherService {
    */
   async fetchPrice(ticker, assetType) {
     const symbol = ticker.toUpperCase();
-    
+
     // Check cache first
     const cached = await this.getCachedPrice(symbol);
     if (cached !== null) {
@@ -50,9 +58,10 @@ class PriceFetcherService {
     console.log(`[PriceCache] MISS: ${symbol} - fetching from API...`);
 
     // Fetch from appropriate API
-    const price = assetType === 'crypto' 
-      ? await this.fetchCryptoPrice(symbol) 
-      : await this.fetchStockPrice(symbol);
+    const price =
+      assetType === "crypto"
+        ? await this.fetchCryptoPrice(symbol)
+        : await this.fetchStockPrice(symbol);
 
     if (!price || price <= 0) {
       throw new PriceNotFoundError(symbol);
@@ -70,46 +79,48 @@ class PriceFetcherService {
   async fetchStockPrice(ticker, retries = 2) {
     const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
     if (!apiKey) {
-      throw new Error('ALPHA_VANTAGE_API_KEY not configured');
+      throw new Error("ALPHA_VANTAGE_API_KEY not configured");
     }
 
     try {
-      const { data } = await axios.get('https://www.alphavantage.co/query', {
-        params: { 
-          function: 'GLOBAL_QUOTE', 
-          symbol: ticker, 
-          apikey: apiKey 
+      const { data } = await axios.get("https://www.alphavantage.co/query", {
+        params: {
+          function: "GLOBAL_QUOTE",
+          symbol: ticker,
+          apikey: apiKey,
         },
-        timeout: 10000
+        timeout: 10000,
       });
 
       // FIX: Check for all error types
-      if (data.Note || data.Information || data['Information']) {
-        throw new RateLimitError('Alpha Vantage rate limit reached');
+      if (data.Note || data.Information || data["Information"]) {
+        throw new RateLimitError("Alpha Vantage rate limit reached");
       }
 
-      if (data['Error Message']) {
+      if (data["Error Message"]) {
         throw new PriceNotFoundError(ticker);
       }
 
-      const price = parseFloat(data['Global Quote']?.['05. price']);
-      
+      const price = parseFloat(data["Global Quote"]?.["05. price"]);
+
       if (isNaN(price) || !price) {
         throw new PriceNotFoundError(ticker);
       }
-      
-      return price;
 
+      return price;
     } catch (error) {
       // Retry on rate limit with exponential backoff
       if (error instanceof RateLimitError && retries > 0) {
         const delay = (3 - retries) * 5000; // 5s, 10s
         console.warn(`[AlphaVantage] Rate limited. Retrying in ${delay}ms...`);
-        await new Promise(r => setTimeout(r, delay));
+        await new Promise((r) => setTimeout(r, delay));
         return this.fetchStockPrice(ticker, retries - 1);
       }
 
-      if (error instanceof RateLimitError || error instanceof PriceNotFoundError) {
+      if (
+        error instanceof RateLimitError ||
+        error instanceof PriceNotFoundError
+      ) {
         throw error;
       }
 
@@ -122,24 +133,26 @@ class PriceFetcherService {
    */
   async fetchCryptoPrice(ticker) {
     const coinId = this.cryptoMapping[ticker] || ticker.toLowerCase();
-    
+
     try {
-      const { data } = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
-        params: { ids: coinId, vs_currencies: 'usd' },
-        timeout: 8000
-      });
+      const { data } = await axios.get(
+        "https://api.coingecko.com/api/v3/simple/price",
+        {
+          params: { ids: coinId, vs_currencies: "usd" },
+          timeout: 8000,
+        }
+      );
 
       const price = data[coinId]?.usd;
-      
+
       if (!price) {
         throw new PriceNotFoundError(ticker);
       }
 
       return price;
-
     } catch (error) {
       if (error.response?.status === 429) {
-        throw new RateLimitError('CoinGecko rate limit reached');
+        throw new RateLimitError("CoinGecko rate limit reached");
       }
 
       if (error instanceof PriceNotFoundError) {
@@ -167,7 +180,7 @@ class PriceFetcherService {
         results[t.ticker] = cached;
       } else {
         // Separate uncached by type
-        if (t.assetType === 'crypto') {
+        if (t.assetType === "crypto") {
           toFetch.cryptos.push(t);
         } else {
           toFetch.stocks.push(t);
@@ -175,7 +188,9 @@ class PriceFetcherService {
       }
     }
 
-    console.log(`[Batch] Cached: ${Object.keys(results).length}, Fetching: ${toFetch.stocks.length} stocks, ${toFetch.cryptos.length} cryptos`);
+    console.log(
+      `[Batch] Cached: ${Object.keys(results).length}, Fetching: ${toFetch.stocks.length} stocks, ${toFetch.cryptos.length} cryptos`
+    );
 
     // STEP 2: Fetch stocks sequentially (rate limit constraint)
     for (const [index, stock] of toFetch.stocks.entries()) {
@@ -186,10 +201,13 @@ class PriceFetcherService {
 
         // Rate limit delay (skip on last item)
         if (index < toFetch.stocks.length - 1) {
-          await new Promise(r => setTimeout(r, this.rateLimitDelay));
+          await new Promise((r) => setTimeout(r, this.rateLimitDelay));
         }
       } catch (error) {
-        console.error(`[Batch] Failed to fetch ${stock.ticker}:`, error.message);
+        console.error(
+          `[Batch] Failed to fetch ${stock.ticker}:`,
+          error.message
+        );
         results[stock.ticker] = null;
       }
     }
@@ -197,18 +215,22 @@ class PriceFetcherService {
     // STEP 3: Batch fetch cryptos (CoinGecko supports bulk)
     if (toFetch.cryptos.length > 0) {
       const ids = toFetch.cryptos
-        .map(c => this.cryptoMapping[c.ticker] || c.ticker.toLowerCase())
-        .join(',');
+        .map((c) => this.cryptoMapping[c.ticker] || c.ticker.toLowerCase())
+        .join(",");
 
       try {
-        const { data } = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
-          params: { ids, vs_currencies: 'usd' },
-          timeout: 10000
-        });
+        const { data } = await axios.get(
+          "https://api.coingecko.com/api/v3/simple/price",
+          {
+            params: { ids, vs_currencies: "usd" },
+            timeout: 10000,
+          }
+        );
 
         // Map results back to tickers
         for (const crypto of toFetch.cryptos) {
-          const coinId = this.cryptoMapping[crypto.ticker] || crypto.ticker.toLowerCase();
+          const coinId =
+            this.cryptoMapping[crypto.ticker] || crypto.ticker.toLowerCase();
           const price = data[coinId]?.usd;
 
           if (price) {
@@ -220,8 +242,8 @@ class PriceFetcherService {
           }
         }
       } catch (error) {
-        console.error('[Batch] Crypto bulk fetch failed:', error.message);
-        
+        console.error("[Batch] Crypto bulk fetch failed:", error.message);
+
         // FIX: Set null for all failed cryptos
         for (const crypto of toFetch.cryptos) {
           if (results[crypto.ticker] === undefined) {
@@ -243,22 +265,22 @@ class PriceFetcherService {
 
     // Check in-memory cache first (fastest)
     const memCache = this.cache.get(symbol);
-    if (memCache && (Date.now() - memCache.timestamp < this.cacheTTL)) {
+    if (memCache && Date.now() - memCache.timestamp < this.cacheTTL) {
       return memCache.price;
     }
 
     // Check database cache (slower but persistent)
     try {
-      const dbCache = await PriceCache.findOne({ ticker: symbol }).lean();
-      
+      const dbCache = await PriceHistory.findOne({ ticker: symbol }).lean();
+
       if (dbCache) {
         const age = Date.now() - new Date(dbCache.fetchedAt).getTime();
-        
+
         if (age < this.cacheTTL) {
           // Refresh in-memory cache
-          this.cache.set(symbol, { 
-            price: dbCache.price, 
-            timestamp: Date.now() 
+          this.cache.set(symbol, {
+            price: dbCache.price,
+            timestamp: Date.now(),
           });
           return dbCache.price;
         }
@@ -281,14 +303,14 @@ class PriceFetcherService {
 
     // Database cache (persistent, non-blocking)
     try {
-      await PriceCache.findOneAndUpdate(
+      await PriceHistory.findOneAndUpdate(
         { ticker: symbol },
-        { 
+        {
           ticker: symbol,
-          price, 
-          assetType, 
-          fetchedAt: new Date(), 
-          source: 'api' 
+          price,
+          assetType,
+          fetchedAt: new Date(),
+          source: "api",
         },
         { upsert: true, new: true }
       );
@@ -302,9 +324,10 @@ class PriceFetcherService {
    * FIX: Properly managed cache cleanup with interval tracking
    */
   startCacheCleanup() {
-    // Clear existing interval if restarted
+    // Prevent multiple intervals
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
     }
 
     this.cleanupInterval = setInterval(() => {
@@ -321,9 +344,12 @@ class PriceFetcherService {
       if (cleaned > 0) {
         console.log(`[Cache] Cleaned ${cleaned} expired entries`);
       }
-    }, this.cacheTTL); // Run cleanup every 5 minutes
+    }, this.cacheTTL);
 
-    console.log('✓ Cache cleanup scheduler started');
+    // Prevent unhandled interval on process exit
+    if (this.cleanupInterval.unref) {
+      this.cleanupInterval.unref();
+    }
   }
 
   /**
@@ -335,7 +361,7 @@ class PriceFetcherService {
       this.cleanupInterval = null;
     }
     this.cache.clear();
-    console.log('✓ PriceFetcherService destroyed');
+    console.log("✓ PriceFetcherService destroyed");
   }
 }
 

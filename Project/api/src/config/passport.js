@@ -45,9 +45,6 @@ export default function setupPassport(passport) {
         if (!id) {
           return done(null, false);
         }
-        if (!id) {
-          return done(null, false);
-        }
 
         const user = await User.findById(id).select("-passwordHash");
         if (user) {

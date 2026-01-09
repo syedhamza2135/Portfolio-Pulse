@@ -1,11 +1,19 @@
 import time
 import torch
 import logging
+import asyncio
+
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional, List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
 from pydantic import BaseModel, Field, field_validator
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
@@ -31,11 +39,25 @@ state = ModelState()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     state.startup_time = time.time()
+    
+    # Load model in background thread to avoid blocking
+    loop = asyncio.get_event_loop()
+    executor = ThreadPoolExecutor(max_workers=1)
+    
     try:
         logger.info(f"Loading {MODEL_NAME} on {DEVICE}...")
-        state.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True)
-        state.model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME).to(DEVICE)
-        state.model.eval()
+        
+        def load_model():
+            tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True)
+            model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME).to(DEVICE)
+            model.eval()
+            return tokenizer, model
+        
+        # Run in thread pool to prevent blocking
+        state.tokenizer, state.model = await loop.run_in_executor(
+            executor, load_model
+        )
+        
         logger.info("✓ Model loaded successfully")
     except Exception as e:
         logger.error(f"❌ Critical failure during startup: {e}")
@@ -43,6 +65,8 @@ async def lifespan(app: FastAPI):
     
     yield
     
+    # Cleanup
+    executor.shutdown(wait=True)
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
@@ -56,6 +80,11 @@ app.add_middleware(
 )
 
 # --- Schemas ---
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+
 class SentimentRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000)
 
@@ -64,7 +93,18 @@ class SentimentRequest(BaseModel):
     def validate_text(cls, v: str):
         if not v.strip():
             raise ValueError('Text cannot be empty')
-        return v.strip()
+        
+        # Reject pathological inputs
+        v = v.strip()
+        
+        if len(set(v)) < len(v) / 20:  # Less than 5% unique characters
+            raise ValueError('Text contains excessive repetition')
+        
+        # Check for suspicious patterns
+        if len(v.encode('utf-8')) > len(v) * 4:  # Unicode expansion check
+            raise ValueError('Text contains invalid encoding')
+        
+        return v
 
 class SentimentResponse(BaseModel):
     sentiment: float
@@ -95,17 +135,27 @@ def get_prediction_details(probs: torch.Tensor):
 
 # --- Endpoints ---
 @app.post("/analyze", response_model=SentimentResponse)
-async def analyze(request: SentimentRequest):
+@limiter.limit("30/minute")  # Rate limit per IP
+async def analyze(request: Request, sentiment_request: SentimentRequest):
     if state.tokenizer is None or state.model is None:
         raise HTTPException(status_code=503, detail="Model is loading.")
 
     start_time = time.time()
     try:
+        # Limit byte size
+        text_bytes = sentiment_request.text.encode('utf-8')
+        if len(text_bytes) > 8000:  # 8KB max
+            raise HTTPException(
+                status_code=400, 
+                detail="Text too large after encoding"
+            )
+        
         inputs = state.tokenizer(
-            request.text, 
+            sentiment_request.text, 
             return_tensors="pt", 
             truncation=True, 
-            max_length=512
+            max_length=512,
+            padding=False  # No padding for single inference
         ).to(DEVICE)
 
         with torch.no_grad():

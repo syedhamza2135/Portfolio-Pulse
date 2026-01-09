@@ -94,7 +94,6 @@ config/secrets.json
 .cache/
 transformers/
 .transformers_cache/
-models/
 outputs/
 checkpoints/
 *.pt

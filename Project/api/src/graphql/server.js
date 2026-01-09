@@ -1,11 +1,12 @@
-import { ApolloServer } from '@apollo/server';
-import { ApolloServerPluginDrainHttpServer } from '@apollo/server/plugin/drainHttpServer';
-import { expressMiddleware } from '@as-integrations/express4';
-import { createComplexityLimitRule } from 'graphql-validation-complexity';
-import jwt from 'jsonwebtoken';
-import typeDefs from './schema.js';
-import resolvers from './resolvers/index.js';
-import { createLoaders } from './dataLoaders.js';
+import { ApolloServer } from "@apollo/server";
+import { ApolloServerPluginDrainHttpServer } from "@apollo/server/plugin/drainHttpServer";
+import { expressMiddleware } from "@as-integrations/express4";
+import { createComplexityLimitRule } from "graphql-validation-complexity";
+import jwt from "jsonwebtoken";
+import depthLimit from "graphql-depth-limit";
+import typeDefs from "./schema.js";
+import resolvers from "./resolvers/index.js";
+import { createLoaders } from "./dataLoaders.js";
 
 export async function createApolloServer(httpServer) {
   const server = new ApolloServer({
@@ -13,26 +14,30 @@ export async function createApolloServer(httpServer) {
     resolvers,
     plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
     validationRules: [
-      createComplexityLimitRule(1000, {
+      createComplexityLimitRule(200, {
+        scalarCost: 1,
+        objectCost: 5,
+        listFactor: 10,
         onCost: (cost) => {
-          if (cost > 500 || process.env.NODE_ENV === 'development') {
+          if (cost > 100) {
             console.log(`[GraphQL] Query cost: ${cost}`);
           }
-        }
-      })
+        },
+      }),
+      depthLimit(5),
     ],
     formatError: (error) => {
-      const isProd = process.env.NODE_ENV === 'production';
-      console.error('GraphQL Error:', {
+      const isProd = process.env.NODE_ENV === "production";
+      console.error("GraphQL Error:", {
         message: error.message,
         path: error.path,
-        code: error.extensions?.code
+        code: error.extensions?.code,
       });
 
       return {
         message: error.message,
-        code: error.extensions?.code || 'INTERNAL_SERVER_ERROR',
-        ...(isProd ? {} : { stack: error.extensions?.stacktrace })
+        code: error.extensions?.code || "INTERNAL_SERVER_ERROR",
+        ...(isProd ? {} : { stack: error.extensions?.stacktrace }),
       };
     },
   });
@@ -44,8 +49,10 @@ export async function createApolloServer(httpServer) {
 export function createGraphQLMiddleware(server) {
   return expressMiddleware(server, {
     context: async ({ req }) => {
-      const authHeader = req.headers.authorization || '';
-      const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.startsWith("Bearer ")
+        ? authHeader.substring(7)
+        : null;
       let user = null;
 
       if (token) {
@@ -56,10 +63,17 @@ export function createGraphQLMiddleware(server) {
         }
       }
 
-      return { 
+      const loaders = createLoaders();
+
+      if (!loaders.holdingsByPortfolio || !loaders.riskMetricsByPortfolio) {
+        console.error("CRITICAL: DataLoaders not initialized properly");
+        throw new Error("Internal server error");
+      }
+
+      return {
         user,
-        loaders: createLoaders(),
-        ip: req.ip 
+        loaders,
+        ip: req.ip,
       };
     },
   });
