@@ -14,10 +14,11 @@ export async function createApolloServer(httpServer) {
     resolvers,
     plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
     validationRules: [
-      createComplexityLimitRule(200, {
+      createComplexityLimitRule(1000, {
         scalarCost: 1,
         objectCost: 5,
         listFactor: 10,
+        introspectionListFactor: 0.1, 
         onCost: (cost) => {
           if (cost > 100) {
             console.log(`[GraphQL] Query cost: ${cost}`);

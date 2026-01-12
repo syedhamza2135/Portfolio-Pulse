@@ -35,3 +35,10 @@ export const apiLimiter = rateLimit({
     });
   }
 });
+
+export const customRateLimitHandler = (req, res) => {
+  res.status(429).json({
+    error: 'Rate limit exceeded',
+    retryAfter: getRetryAfter(req)
+  });
+};

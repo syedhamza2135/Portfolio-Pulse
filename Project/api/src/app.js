@@ -11,6 +11,7 @@ import holdingRoutes from './routes/holdingsRoute.js';
 import priceRoutes from './routes/priceRoute.js';
 import sentimentRoutes from './routes/sentimentRoute.js';
 import riskRoutes from './routes/riskRoute.js';
+import healthRoutes from './routes/healthRoute.js';
 
 const app = express();
 
@@ -34,28 +35,38 @@ app.use('/api/auth/login', authLimiter);
 app.use('/api/', apiLimiter);
 
 // Routes
-app.use('/api/auth', authRoutes);
 app.use('/api', meRoutes);
+app.use('/api/health', healthRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/portfolios', portfolioRoutes);
 app.use('/api/holdings', holdingRoutes);
 app.use('/api/prices', priceRoutes);
 app.use('/api/sentiment', sentimentRoutes);
 app.use('/api/risk', riskRoutes);
 
-// Error Handlers
-app.use((req, res) => {
-  res.status(404).json({ error: 'Endpoint not found', path: req.path });
-});
+// The GraphQL Mounter
+import { createGraphQLMiddleware } from "./graphql/server.js"; 
 
-app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  
-  const isDev = process.env.NODE_ENV !== 'production';
-  
-  res.status(err.status || 500).json({
-    error: isDev ? err.message : 'Internal server error',
-    ...(isDev && { stack: err.stack })
+export const mountGraphQL = (apolloServer) => {
+  app.use('/graphql', createGraphQLMiddleware(apolloServer));
+  console.log("✓ GraphQL Route Registered");
+};
+
+// Error Handlers
+export const setupErrorHandlers = () => {
+  app.use((req, res) => {
+    res.status(404).json({ error: 'Endpoint not found', path: req.path });
   });
-});
+
+  app.use((err, req, res, next) => {
+    console.error('Unhandled error:', err);
+    const isDev = process.env.NODE_ENV !== 'production';
+    res.status(err.status || 500).json({
+      error: isDev ? err.message : 'Internal server error',
+      ...(isDev && { stack: err.stack })
+    });
+  });
+  console.log("✓ Error Handlers Registered");
+};
 
 export default app;

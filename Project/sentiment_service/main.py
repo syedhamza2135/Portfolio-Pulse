@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -79,12 +80,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Schemas ---
-# Rate limiting
+# --- Rate Limiting Setup ---
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 
+# FIX: Define the handler BEFORE calling it
+async def rate_limit_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Please try again later."},
+    )
+
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+# --- Schemas ---
 class SentimentRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000)
 
