@@ -1,3 +1,15 @@
+/**
+ * Database Configuration and Utilities
+ * 
+ * Provides database initialization, validation, and maintenance functions:
+ * - Index creation for optimal query performance
+ * - Database connection validation
+ * - Development cleanup utilities
+ * 
+ * @module config/database
+ * @requires mongoose
+ */
+
 import mongoose from 'mongoose';
 import User from '../models/user.js';
 import Portfolio from '../models/portfolio.js';
@@ -8,7 +20,21 @@ import PriceHistory from '../models/priceHistory.js';
 
 /**
  * Ensures all database indexes are created
- * Run this once after initial deployment or schema changes
+ * 
+ * Indexes are critical for query performance. This function:
+ * - Creates indexes defined in model schemas
+ * - Verifies indexes exist after creation
+ * - Logs index count for each collection
+ * 
+ * Should be run:
+ * - Once after initial deployment
+ * - After schema changes that affect indexes
+ * - During database migrations
+ * 
+ * @async
+ * @function ensureIndexes
+ * @returns {Promise<void>}
+ * @throws {Error} If index creation fails
  */
 export async function ensureIndexes() {
   console.log('[Database] Creating indexes...');
@@ -46,6 +72,17 @@ export async function ensureIndexes() {
 
 /**
  * Validates database connection and configuration
+ * 
+ * Performs health checks on the database connection:
+ * - Verifies connection state
+ * - Pings database to ensure it's responsive
+ * - Checks for required collections (warns if missing)
+ * 
+ * Used during application startup to ensure database is ready.
+ * 
+ * @async
+ * @function validateDatabase
+ * @returns {Promise<boolean>} True if validation passes, false otherwise
  */
 export async function validateDatabase() {
   try {
@@ -81,7 +118,20 @@ export async function validateDatabase() {
 }
 
 /**
- * Database cleanup utility (for development)
+ * Database cleanup utility (for development only)
+ * 
+ * WARNING: This function deletes ALL data from all collections.
+ * Only available in non-production environments for safety.
+ * 
+ * Use cases:
+ * - Resetting test database
+ * - Development environment cleanup
+ * - Testing data migration scripts
+ * 
+ * @async
+ * @function cleanupDatabase
+ * @returns {Promise<void>}
+ * @throws {Error} If called in production environment
  */
 export async function cleanupDatabase() {
   if (process.env.NODE_ENV === 'production') {

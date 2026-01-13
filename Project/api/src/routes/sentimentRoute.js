@@ -1,3 +1,19 @@
+/**
+ * Sentiment Analysis Routes
+ * 
+ * Defines endpoints for AI-powered sentiment analysis:
+ * - GET /api/sentiment/:ticker - Get sentiment for a specific ticker
+ * - GET /api/sentiment/portfolio/:portfolioId - Get sentiment for all holdings in a portfolio
+ * - POST /api/sentiment/analyze - Batch analyze sentiment for multiple tickers
+ * - GET /api/sentiment/service/status - Get sentiment service health status
+ * 
+ * All routes require authentication.
+ * Sentiment analysis is performed by the Python FastAPI service.
+ * 
+ * @module routes/sentimentRoute
+ * @requires express
+ */
+
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import sentimentAnalysisService from '../services/sentimentAnalysisService.js';

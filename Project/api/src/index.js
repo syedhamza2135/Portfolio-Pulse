@@ -1,3 +1,20 @@
+/**
+ * Portfolio Pulse API Server - Main Entry Point
+ * 
+ * This is the primary entry point for the Portfolio Pulse backend API.
+ * It handles:
+ * - Environment validation
+ * - Database connection and initialization
+ * - Service initialization (email, sentiment, news)
+ * - Background job scheduling
+ * - Graceful shutdown handling
+ * 
+ * @module index
+ * @requires dotenv
+ * @requires mongoose
+ * @requires express
+ */
+
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -23,15 +40,43 @@ import sentimentAnalysisService from "./services/sentimentAnalysisService.js";
 import newsFetcherService from "./services/newsFetcherService.js";
 import priceFetcher from "./services/priceFetcherService.js";
 
+/**
+ * HTTP server instance for graceful shutdown
+ * @type {import('http').Server|null}
+ */
 let httpServerInstance = null;
 
+/**
+ * Main server startup function
+ * 
+ * Orchestrates the complete application initialization:
+ * 1. Validates environment variables
+ * 2. Sets up authentication (Passport)
+ * 3. Connects to MongoDB with connection pooling
+ * 4. Validates database and creates indexes
+ * 5. Initializes GraphQL and REST API servers
+ * 6. Initializes external services (email, sentiment)
+ * 7. Starts background jobs (price updates, risk calculations, alerts)
+ * 8. Starts HTTP server
+ * 
+ * @async
+ * @function start
+ * @throws {Error} Exits process with code 1 if critical initialization fails
+ */
 async function start() {
   try {
-    // 1. Validate Environment & Auth
+    // Step 1: Validate Environment & Setup Authentication
+    // Ensures all required environment variables are present and valid
     const config = validateEnvironment();
     setupPassport(passport);
 
-    // 2. Establish Database Connection
+    // Step 2: Establish Database Connection
+    // Uses connection pooling for optimal performance
+    // - maxPoolSize: Maximum number of connections (50)
+    // - minPoolSize: Minimum connections to maintain (10)
+    // - serverSelectionTimeoutMS: Time to wait for server selection (5s)
+    // - socketTimeoutMS: Time before socket times out (45s)
+    // - family: 4 = IPv4 only (faster, more reliable)
     console.log("[System] Connecting to MongoDB...");
     await mongoose.connect(process.env.MONGO_URI, {
       maxPoolSize: 50,
@@ -44,55 +89,80 @@ async function start() {
       monitorCommands: process.env.NODE_ENV === "development",
     });
 
-    // 3. Database Health & Optimization
+    // Step 3: Database Health & Optimization
+    // Validates database connection and ensures all indexes exist
+    // Indexes are critical for query performance
     const dbValid = await validateDatabase();
     if (!dbValid) {
       console.warn("⚠ Database validation warnings detected. Check collection logs.");
     }
     await ensureIndexes(); 
 
-    // 4. Initialize API Servers
+    // Step 4: Initialize API Servers
+    // Creates HTTP server and GraphQL Apollo server
     const httpServer = createServer(app);
     const apolloServer = await createApolloServer(httpServer);
 
+    // Mount GraphQL endpoint and error handlers
     mountGraphQL(apolloServer);
-
     setupErrorHandlers();
 
-    // 5. Initialize Core Services
+    // Step 5: Initialize Core Services
+    // Email service requires SENDGRID_API_KEY
+    // Sentiment service is a separate Python FastAPI service
     const emailInitialized = emailAlertService.initialize();
     
-    // Check Sentiment Service (Python FastAPI)
+    // Check Sentiment Service (Python FastAPI) health
+    // This service provides AI-powered sentiment analysis
     const pythonHealthy = await sentimentAnalysisService.checkPythonServiceHealth();
     
-    // 6. Start Background Jobs
+    // Step 6: Start Background Jobs
+    // These run on cron schedules:
+    // - Price updates: Every 15 minutes during market hours
+    // - Risk calculations: Daily at midnight
+    // - Alert checks: Every 15 minutes (if email enabled)
     startPriceUpdateJob();
     startRiskCalculationJob();
     if (emailInitialized) {
         startAlertCheckJob();
     }
 
-    // 7. Start Listening
+    // Step 7: Start Listening
+    // Server is now ready to accept connections
     httpServerInstance = httpServer.listen(config.port, () => {
       printStartupBanner(config, pythonHealthy, emailInitialized);
     });
 
+    // Set up MongoDB connection monitoring
     setupMongooseMonitoring();
 
   } catch (error) {
     console.error("Critical failure during startup:", error);
+    // Exit with error code 1 to signal failure to process manager
     process.exit(1);
   }
 }
 
 /**
- * Helper to keep logs clean
+ * Sets up MongoDB connection event monitoring
+ * 
+ * Monitors connection state changes and logs pool statistics in production.
+ * This helps identify connection issues and pool exhaustion problems.
+ * 
+ * @function setupMongooseMonitoring
  */
 function setupMongooseMonitoring() {
+  // Log connection errors
   mongoose.connection.on("error", (err) => console.error("MongoDB error:", err));
+  
+  // Log disconnection events
   mongoose.connection.on("disconnected", () => console.warn("⚠ MongoDB disconnected"));
+  
+  // Log successful reconnections
   mongoose.connection.on("reconnected", () => console.log("✓ MongoDB reconnected"));
 
+  // In production, log connection pool stats every minute
+  // This helps monitor pool health and identify connection leaks
   if (process.env.NODE_ENV === "production") {
     setInterval(() => {
       const stats = mongoose.connection.client?.topology?.s?.pool?.stats;
@@ -123,15 +193,30 @@ function printStartupBanner(config, pythonHealthy, emailInitialized) {
 }
 
 /**
- * Graceful Shutdown Handler
+ * Graceful shutdown handler
+ * 
+ * Ensures all resources are properly closed when the process receives
+ * termination signals (SIGTERM, SIGINT). This is critical for:
+ * - Preventing data corruption
+ * - Closing database connections cleanly
+ * - Stopping background timers/intervals
+ * - Allowing load balancers to drain connections
+ * 
+ * @async
+ * @function gracefulShutdown
+ * @param {string} signal - The termination signal received (SIGTERM, SIGINT)
  */
 async function gracefulShutdown(signal) {
   console.log(`\n${signal} received. Closing services...`);
 
+  // Close HTTP server (stops accepting new connections)
+  // Existing connections are allowed to complete
   if (httpServerInstance) {
     httpServerInstance.close(() => console.log("✓ HTTP server closed"));
   }
 
+  // Close MongoDB connection
+  // Ensures all pending operations complete
   try {
     await mongoose.connection.close();
     console.log("✓ MongoDB connection closed");
@@ -139,6 +224,8 @@ async function gracefulShutdown(signal) {
     console.error("Error closing MongoDB:", err);
   }
 
+  // Cleanup service resources
+  // Destroys timers, intervals, and clears caches
   priceFetcher.destroy?.();
   newsFetcherService.destroy?.();
   sentimentAnalysisService.destroy?.();

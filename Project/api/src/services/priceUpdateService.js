@@ -1,3 +1,21 @@
+/**
+ * Price Update Service
+ * 
+ * Handles updating market prices for holdings and portfolios.
+ * 
+ * Features:
+ * - Single holding price updates with transaction support
+ * - Portfolio-wide batch price updates
+ * - System-wide price updates (scheduled job)
+ * - Automatic portfolio value recalculation after price updates
+ * - Error handling for rate limits and missing prices
+ * 
+ * @module services/priceUpdateService
+ * @requires mongoose
+ * @requires services/priceFetcherService
+ * @requires services/portfolioCalculation
+ */
+
 import mongoose from "mongoose";
 import Holding from "../models/holdings.js";
 import priceFetcher, {
@@ -9,6 +27,20 @@ import { recalculatePortfolioValues } from "./portfolioCalculation.js";
 class PriceUpdateService {
   /**
    * Updates a single holding's price with proper transaction handling
+   * 
+   * Process:
+   * 1. Fetches latest price from external API
+   * 2. Updates holding with new price and timestamp
+   * 3. Recalculates parent portfolio value
+   * 
+   * Uses MongoDB transactions to ensure data consistency.
+   * 
+   * @async
+   * @function updateHoldingPrice
+   * @param {string} holdingId - Holding ID to update
+   * 
+   * @returns {Promise<Object>} Updated holding document
+   * @throws {Error} If holding not found, rate limit reached, or price unavailable
    */
   async updateHoldingPrice(holdingId) {
     const session = await mongoose.startSession();
@@ -47,6 +79,22 @@ class PriceUpdateService {
 
   /**
    * Updates all holdings for a specific portfolio
+   * 
+   * More efficient than updating holdings individually:
+   * - Batch fetches prices for all holdings
+   * - Uses bulk write operations
+   * - Single portfolio recalculation
+   * 
+   * @async
+   * @function updatePortfolioPrices
+   * @param {string} portfolioId - Portfolio ID to update
+   * 
+   * @returns {Promise<Object>} Update results
+   * @returns {number} return.updated - Number of holdings successfully updated
+   * @returns {number} return.total - Total number of holdings
+   * @returns {number} return.failed - Number of holdings that failed to update
+   * 
+   * @throws {Error} If transaction fails
    */
   async updatePortfolioPrices(portfolioId) {
     const session = await mongoose.startSession();
@@ -93,7 +141,27 @@ class PriceUpdateService {
   }
 
   /**
-   * Optimized batch update for all holdings
+   * Optimized batch update for all holdings across all portfolios
+   * 
+   * Used by scheduled cron job to update all prices system-wide.
+   * 
+   * Optimization strategy:
+   * 1. Groups holdings by unique ticker+assetType (avoids duplicate API calls)
+   * 2. Batch fetches prices for all unique tickers
+   * 3. Uses bulk write to update all holdings at once
+   * 4. Recalculates affected portfolios in chunks
+   * 
+   * @async
+   * @function updateAllPrices
+   * 
+   * @returns {Promise<Object>} Update statistics
+   * @returns {number} return.tickersUpdated - Number of unique tickers updated
+   * @returns {number} return.holdingsModified - Number of holdings modified
+   * @returns {number} return.portfoliosUpdated - Number of portfolios recalculated
+   * @returns {number} return.portfoliosFailed - Number of portfolio recalculations that failed
+   * @returns {Array} return.errors - Array of error details (max 100)
+   * 
+   * @throws {Error} If critical error occurs during batch update
    */
   async updateAllPrices() {
     try {
@@ -145,37 +213,91 @@ class PriceUpdateService {
     }
   }
 
+  /**
+   * Recalculates portfolio values in batches
+   * 
+   * Processes portfolios in chunks to avoid overwhelming the database.
+   * Uses Promise.allSettled to ensure partial failures don't stop processing.
+   * 
+   * @async
+   * @function batchRecalculatePortfolios
+   * @param {Array<string>} portfolioIds - Array of portfolio IDs to recalculate
+   * @param {number} [chunkSize=50] - Number of portfolios to process per chunk
+   * 
+   * @returns {Promise<Object>} Recalculation results
+   * @returns {number} return.successful - Number of successful recalculations
+   * @returns {number} return.failed - Number of failed recalculations
+   * @returns {Array} return.errors - Array of error details (max 100)
+   */
   async batchRecalculatePortfolios(portfolioIds, chunkSize = 50) {
     const results = { successful: 0, failed: 0, errors: [] };
     
+    // Process portfolios in chunks
     for (let i = 0; i < portfolioIds.length; i += chunkSize) {
       const chunk = portfolioIds.slice(i, i + chunkSize);
-      const chunkResults = await Promise.allSettled(chunk.map(id => recalculatePortfolioValues(id)));
+      
+      // Recalculate all portfolios in chunk in parallel
+      const chunkResults = await Promise.allSettled(
+        chunk.map(id => recalculatePortfolioValues(id))
+      );
 
+      // Process results
       chunkResults.forEach((result, index) => {
-        if (result.status === "fulfilled") results.successful++;
-        else {
+        if (result.status === "fulfilled") {
+          results.successful++;
+        } else {
           results.failed++;
+          // Limit error array size to prevent memory issues
           if (results.errors.length < 100) {
-            results.errors.push({ portfolioId: chunk[index], error: result.reason?.message });
+            results.errors.push({ 
+              portfolioId: chunk[index], 
+              error: result.reason?.message 
+            });
           }
         }
       });
-      if (i + chunkSize < portfolioIds.length) await new Promise(r => setTimeout(r, 100));
+      
+      // Small delay between chunks to avoid overwhelming database
+      if (i + chunkSize < portfolioIds.length) {
+        await new Promise(r => setTimeout(r, 100));
+      }
     }
     return results;
   }
 
+  /**
+   * Gets price update statistics
+   * 
+   * Provides metrics about price update coverage across all holdings.
+   * Useful for monitoring and identifying holdings that need price updates.
+   * 
+   * @async
+   * @function getUpdateStats
+   * 
+   * @returns {Promise<Object>} Update statistics
+   * @returns {number} return.totalHoldings - Total number of holdings
+   * @returns {number} return.needsUpdate - Holdings needing price updates
+   * @returns {string} return.updateCoverage - Percentage of holdings with valid prices
+   */
   async getUpdateStats() {
     const totalHoldings = await Holding.countDocuments();
+    
+    // Count holdings that need price updates
+    // Either no price (<= 0) or never updated
     const needsUpdate = await Holding.countDocuments({
-      $or: [{ currentPrice: { $lte: 0 } }, { lastPriceUpdate: { $exists: false } }]
+      $or: [
+        { currentPrice: { $lte: 0 } }, 
+        { lastPriceUpdate: { $exists: false } }
+      ]
     });
 
     return {
       totalHoldings,
       needsUpdate,
-      updateCoverage: totalHoldings > 0 ? (((totalHoldings - needsUpdate) / totalHoldings) * 100).toFixed(2) + "%" : "0%"
+      // Calculate coverage percentage
+      updateCoverage: totalHoldings > 0 
+        ? (((totalHoldings - needsUpdate) / totalHoldings) * 100).toFixed(2) + "%" 
+        : "0%"
     };
   }
 }

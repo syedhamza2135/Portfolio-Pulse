@@ -1,12 +1,43 @@
+/**
+ * Alert Check Background Job
+ * 
+ * Scheduled job that checks portfolios and holdings for alert conditions
+ * and sends email notifications when thresholds are exceeded.
+ * 
+ * Schedule:
+ * - Default: Every 15 minutes
+ * - Configurable via cron schedule
+ * 
+ * Alert Types:
+ * - Portfolio-level: Total value change exceeds user's threshold
+ * - Holding-level: Individual holding price change exceeds threshold
+ * 
+ * Features:
+ * - Cooldown periods to prevent email spam (4 hours for portfolios, 1 hour for holdings)
+ * - Daily email limit enforcement (3 emails per user per day)
+ * - User preference checking (respects emailEnabled setting)
+ * 
+ * @module jobs/alertCheckJob
+ * @requires node-cron
+ * @requires services/emailAlertService
+ */
+
 import cron from "node-cron";
 import User from "../models/user.js";
 import Portfolio from "../models/portfolio.js";
 import Holding from "../models/holdings.js";
 import emailAlertService from "../services/emailAlertService.js";
 
+/**
+ * Alert Checker Class
+ * 
+ * Manages alert checking state and prevents concurrent executions.
+ */
 class AlertChecker {
   constructor() {
-    this.lastCheckedPrices = new Map(); // Track previous prices
+    // Track last alert times to implement cooldown periods
+    this.lastCheckedPrices = new Map();
+    // Flag to prevent concurrent job executions
     this.isRunning = false;
   }
 
@@ -225,13 +256,24 @@ const checker = new AlertChecker();
  * Starts the alert checking cron job
  * Runs every 15 minutes per PRD
  */
+/**
+ * Starts the alert checking cron job
+ * 
+ * Schedules two jobs:
+ * 1. Alert checking: Every 15 minutes (checks for threshold breaches)
+ * 2. Cache cleanup: Daily at midnight (removes old alert cache entries)
+ * 
+ * @function startAlertCheckJob
+ */
 export function startAlertCheckJob() {
   // Check alerts every 15 minutes
+  // This frequency balances responsiveness with system load
   cron.schedule("*/15 * * * *", async () => {
     await checker.checkAllAlerts();
   });
 
   // Cleanup cache daily at midnight
+  // Removes old alert cache entries to prevent memory leaks
   cron.schedule("0 0 * * *", () => {
     checker.cleanupCache();
     console.log("[AlertJob] Cache cleanup complete");

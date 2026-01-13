@@ -1,8 +1,47 @@
+/**
+ * Portfolio Statistics Controller
+ * 
+ * Provides aggregated statistics and analytics for portfolios:
+ * - Aggregated stats across all user portfolios
+ * - Detailed stats for individual portfolios
+ * - Top gainers/losers
+ * - Asset type breakdown
+ * 
+ * @module controllers/portfolioStatsController
+ * @requires models/portfolio
+ * @requires models/holdings
+ */
+
 import Portfolio from '../models/portfolio.js';
 import Holding from '../models/holdings.js';
 import { getUserId } from '../utils/authHelpers.js';
 
-
+/**
+ * Retrieves aggregated statistics for all user portfolios
+ * 
+ * Calculates:
+ * - Total portfolios and holdings count
+ * - Total investment vs current value
+ * - Overall profit/loss (absolute and percentage)
+ * - Number of portfolios with holdings
+ * 
+ * @async
+ * @function getPortfolioStats
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * 
+ * @returns {Object} 200 - Aggregated statistics
+ * @returns {number} res.body.totalPortfolios - Total number of portfolios
+ * @returns {number} res.body.totalHoldings - Total number of holdings
+ * @returns {number} res.body.totalInvestment - Total initial investment
+ * @returns {number} res.body.currentValue - Current total value
+ * @returns {number} res.body.totalProfitLoss - Total profit/loss amount
+ * @returns {number} res.body.totalProfitLossPercent - Total profit/loss percentage
+ * @returns {number} res.body.portfoliosWithHoldings - Number of portfolios with holdings
+ * @returns {Date} res.body.lastUpdated - Timestamp of calculation
+ * 
+ * @throws {500} If calculation fails
+ */
 export async function getPortfolioStats(req, res) {
     try {
         const userId = getUserId(req);
@@ -74,6 +113,39 @@ export async function getPortfolioStats(req, res) {
 }
 
 
+/**
+ * Retrieves detailed statistics for a specific portfolio
+ * 
+ * Calculates:
+ * - Portfolio value metrics (investment, current value, profit/loss)
+ * - Top 5 gainers and losers
+ * - Asset type breakdown (stocks, crypto, ETF percentages)
+ * 
+ * Security: Verifies user owns the portfolio before returning stats.
+ * 
+ * @async
+ * @function getPortfolioDetailedStats
+ * @param {Object} req - Express request object
+ * @param {string} req.params.id - Portfolio ID
+ * @param {Object} res - Express response object
+ * 
+ * @returns {Object} 200 - Detailed portfolio statistics
+ * @returns {string} res.body.portfolioId - Portfolio ID
+ * @returns {string} res.body.portfolioName - Portfolio name
+ * @returns {number} res.body.totalHoldings - Number of holdings
+ * @returns {number} res.body.totalInvestment - Total initial investment
+ * @returns {number} res.body.currentValue - Current total value
+ * @returns {number} res.body.totalProfitLoss - Total profit/loss
+ * @returns {number} res.body.totalProfitLossPercent - Profit/loss percentage
+ * @returns {Array} res.body.topGainers - Top 5 holdings by profit
+ * @returns {Array} res.body.topLosers - Bottom 5 holdings by profit
+ * @returns {Object} res.body.assetTypeBreakdown - Breakdown by asset type
+ * @returns {Date} res.body.lastUpdated - Timestamp of calculation
+ * 
+ * @throws {400} If portfolio ID is invalid
+ * @throws {404} If portfolio not found or user doesn't own it
+ * @throws {500} If calculation fails
+ */
 export async function getPortfolioDetailedStats(req, res) {
     try {
         const userId = getUserId(req);

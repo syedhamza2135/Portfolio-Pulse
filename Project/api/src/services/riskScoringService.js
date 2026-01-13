@@ -1,11 +1,58 @@
+/**
+ * Risk Scoring Service
+ * 
+ * Calculates comprehensive risk metrics for investment portfolios.
+ * 
+ * Risk Components:
+ * 1. Volatility (40% weight): Price volatility based on asset type
+ * 2. Concentration (30% weight): Portfolio diversification (Herfindahl Index)
+ * 3. Sector Exposure (30% weight): Sector concentration risk
+ * 
+ * Risk Score Formula:
+ * overallScore = (0.4 × volatility) + (0.3 × concentration) + (0.3 × sectorExposure)
+ * 
+ * Score Range: 1-10 (1 = Low risk, 10 = High risk)
+ * 
+ * Features:
+ * - Individual portfolio risk calculation
+ * - Batch risk calculation for all portfolios
+ * - Risk simulation (what-if analysis)
+ * - Historical risk metrics storage
+ * 
+ * @module services/riskScoringService
+ * @requires models/holdings
+ * @requires models/riskMetrics
+ * @requires services/priceFetcherService
+ */
+
 import Holding from '../models/holdings.js';
 import RiskMetrics from '../models/riskMetrics.js';
 import priceFetcher from './priceFetcherService.js';
 
+/**
+ * Risk Scoring Service Class
+ * 
+ * Provides risk analysis and scoring for portfolios.
+ */
 class RiskScoringService {
   /**
    * Calculates comprehensive risk score for a portfolio
+   * 
+   * Calculates three risk components and combines them into an overall score.
+   * Saves results to database for historical tracking.
+   * 
    * Formula: Risk = (0.4 × Volatility) + (0.3 × Concentration) + (0.3 × Sector Exposure)
+   * 
+   * @async
+   * @function calculatePortfolioRisk
+   * @param {string} portfolioId - Portfolio ID to calculate risk for
+   * 
+   * @returns {Promise<Object|null>} Risk metrics document or null if no holdings
+   * @returns {number} return.overallScore - Overall risk score (1-10)
+   * @returns {Object} return.components - Risk component scores
+   * @returns {Date} return.calculatedAt - When risk was calculated
+   * 
+   * @throws {Error} If calculation fails
    */
   async calculatePortfolioRisk(portfolioId) {
     try {
@@ -55,9 +102,23 @@ class RiskScoringService {
   }
 
   /**
-   * Calculates volatility score (1-10 scale)
-   * Based on 30-day standard deviation of returns
-   * σ < 10% → 1, σ > 40% → 10
+   * Calculates volatility risk component (1-10 scale)
+   * 
+   * Estimates volatility based on asset type:
+   * - Crypto: 45% (highly volatile)
+   * - Stock: 25% (moderate volatility)
+   * - ETF: 15% (lower volatility)
+   * 
+   * Note: In production, this should use 30-day historical price data
+   * to calculate actual standard deviation of returns.
+   * 
+   * Normalization: σ < 10% → 1, σ > 40% → 10
+   * 
+   * @async
+   * @function calculateVolatilityScore
+   * @param {Array<Object>} holdings - Array of holding documents
+   * 
+   * @returns {Promise<number>} Volatility score (1-10)
    */
   async calculateVolatilityScore(holdings) {
     try {
@@ -98,6 +159,16 @@ class RiskScoringService {
 
   /**
    * Normalizes volatility percentage to 1-10 scale
+   * 
+   * Linear interpolation between thresholds:
+   * - < 10%: Score 1 (low volatility)
+   * - > 40%: Score 10 (high volatility)
+   * - Between: Linear interpolation
+   * 
+   * @function normalizeVolatility
+   * @param {number} volatility - Volatility as decimal (e.g., 0.25 = 25%)
+   * 
+   * @returns {number} Normalized score (1-10)
    */
   normalizeVolatility(volatility) {
     if (volatility < 0.10) return 1;
@@ -108,9 +179,22 @@ class RiskScoringService {
   }
 
   /**
-   * Calculates concentration score using Herfindahl Index
-   * HHI = Σ(weight²) for each holding
-   * HHI < 0.15 (diversified) → 1, HHI > 0.40 (concentrated) → 10
+   * Calculates concentration risk component using Herfindahl Index
+   * 
+   * Herfindahl Index (HHI) measures portfolio concentration:
+   * - HHI = Σ(weight²) for each holding
+   * - Lower HHI = More diversified = Lower risk
+   * - Higher HHI = More concentrated = Higher risk
+   * 
+   * Normalization:
+   * - HHI < 0.15 (diversified) → Score 1
+   * - HHI > 0.40 (concentrated) → Score 10
+   * - Between: Linear interpolation
+   * 
+   * @function calculateConcentrationScore
+   * @param {Array<Object>} holdings - Array of holding documents
+   * 
+   * @returns {number} Concentration score (1-10)
    */
   calculateConcentrationScore(holdings) {
     try {
@@ -147,11 +231,25 @@ class RiskScoringService {
   }
 
   /**
-   * Calculates sector exposure score
-   * Max sector weight < 25% → 1, > 60% → 10
+   * Calculates sector exposure risk component
    * 
-   * Note: For MVP, we map tickers to sectors using a simple lookup.
-   * In production, use Yahoo Finance API to get GICS sector classification.
+   * Measures concentration risk from sector exposure:
+   * - Lower max sector weight = More diversified = Lower risk
+   * - Higher max sector weight = More concentrated = Higher risk
+   * 
+   * Normalization:
+   * - Max sector weight < 25% → Score 1
+   * - Max sector weight > 60% → Score 10
+   * - Between: Linear interpolation
+   * 
+   * Note: For MVP, uses simplified ticker-to-sector mapping.
+   * In production, should use Yahoo Finance API for GICS sector classification.
+   * 
+   * @async
+   * @function calculateSectorExposureScore
+   * @param {Array<Object>} holdings - Array of holding documents
+   * 
+   * @returns {Promise<number>} Sector exposure score (1-10)
    */
   async calculateSectorExposureScore(holdings) {
     try {
@@ -195,7 +293,16 @@ class RiskScoringService {
 
   /**
    * Maps tickers to sectors (simplified for MVP)
-   * In production, fetch from Yahoo Finance API
+   * 
+   * Provides a lookup table for common tickers to their sectors.
+   * 
+   * TODO: In production, integrate with Yahoo Finance API to get
+   * GICS (Global Industry Classification Standard) sector classifications.
+   * 
+   * @function mapHoldingsToSectors
+   * @param {Array<Object>} holdings - Array of holding documents
+   * 
+   * @returns {Object} Map of ticker to sector name
    */
   mapHoldingsToSectors(holdings) {
     // Simplified sector mapping for common tickers
@@ -234,7 +341,18 @@ class RiskScoringService {
   }
 
   /**
-   * Calculates risk for all portfolios (used by scheduled job)
+   * Calculates risk for all portfolios with holdings
+   * 
+   * Used by scheduled cron job to update risk metrics system-wide.
+   * Processes portfolios sequentially with delays to avoid overwhelming database.
+   * 
+   * @async
+   * @function calculateAllPortfolioRisks
+   * 
+   * @returns {Promise<Object>} Batch calculation results
+   * @returns {number} return.successful - Number of successful calculations
+   * @returns {number} return.failed - Number of failed calculations
+   * @returns {Array} return.errors - Array of error details
    */
   async calculateAllPortfolioRisks() {
     try {
@@ -276,7 +394,15 @@ class RiskScoringService {
   }
 
   /**
-   * Gets current risk metrics for a portfolio
+   * Retrieves current risk metrics for a portfolio
+   * 
+   * Returns the most recent risk calculation for a portfolio.
+   * 
+   * @async
+   * @function getPortfolioRiskMetrics
+   * @param {string} portfolioId - Portfolio ID to get metrics for
+   * 
+   * @returns {Promise<Object|null>} Risk metrics document or null if not calculated
    */
   async getPortfolioRiskMetrics(portfolioId) {
     try {
@@ -292,8 +418,25 @@ class RiskScoringService {
   }
 
   /**
-   * Simulates risk impact of adding/removing a holding
-   * Used for "what-if" analysis
+   * Simulates risk impact of portfolio changes
+   * 
+   * Performs "what-if" analysis by calculating risk with simulated holdings
+   * added to the portfolio. Does not save to database.
+   * 
+   * Useful for:
+   * - Testing portfolio changes before committing
+   * - Understanding risk impact of new positions
+   * - Portfolio optimization
+   * 
+   * @async
+   * @function simulateRiskChange
+   * @param {string} portfolioId - Portfolio ID to simulate changes for
+   * @param {Array<Object>} simulatedHoldings - Holdings to add to simulation
+   * 
+   * @returns {Promise<Object>} Simulated risk metrics
+   * @returns {boolean} return.simulated - Always true (indicates simulation)
+   * @returns {number} return.overallScore - Simulated overall risk score
+   * @returns {Object} return.components - Simulated risk components
    */
   async simulateRiskChange(portfolioId, simulatedHoldings) {
     try {

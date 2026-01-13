@@ -1,22 +1,64 @@
+/**
+ * News Fetcher Service
+ * 
+ * Fetches financial news articles for tickers using NewsAPI.
+ * 
+ * Features:
+ * - Rate limit tracking (100 requests per day on free tier)
+ * - Caching with 4-hour TTL
+ * - Batch news fetching
+ * - Automatic daily limit reset
+ * - Graceful degradation when rate limited
+ * 
+ * API: NewsAPI.org
+ * - Free tier: 100 requests per day
+ * - Searches for news containing ticker symbol
+ * - Returns articles from last 24 hours
+ * 
+ * @module services/newsFetcherService
+ * @requires axios
+ * @requires models/sentimentData
+ */
+
 import axios from "axios";
 import SentimentData from "../models/sentimentData.js";
 
+/**
+ * News Fetcher Service Class
+ * 
+ * Manages news fetching with rate limiting and caching.
+ */
 class NewsFetcherService {
+  /**
+   * Initializes the news fetcher service
+   * 
+   * Sets up NewsAPI configuration and starts daily reset timer.
+   */
   constructor() {
+    // NewsAPI configuration
     this.apiKey = process.env.NEWSAPI_KEY;
     this.baseUrl = "https://newsapi.org/v2";
-    this.cacheTTL = 4 * 60 * 60 * 1000; // 4 hours
+    
+    // Cache configuration: 4 hours TTL
+    this.cacheTTL = 4 * 60 * 60 * 1000;
+    
+    // Rate limit configuration (NewsAPI free tier: 100 requests/day)
     this.dailyLimit = 100;
     this.requestCount = 0;
     this.resetTime = Date.now() + 24 * 60 * 60 * 1000;
-    this.resetInterval = null; // Track the interval
+    this.resetInterval = null; // Track the interval for cleanup
 
     // Start daily reset timer
     this.startDailyReset();
   }
 
   /**
-   * Starts daily counter reset (fixes memory leak)
+   * Starts daily rate limit counter reset timer
+   * 
+   * Automatically resets the request counter every 24 hours.
+   * Prevents memory leaks by properly managing intervals.
+   * 
+   * @function startDailyReset
    */
   startDailyReset() {
     // Clear existing interval if any
@@ -43,6 +85,13 @@ class NewsFetcherService {
     }
   }
 
+  /**
+   * Graceful shutdown handler
+   * 
+   * Cleans up intervals to prevent memory leaks.
+   * 
+   * @function destroy
+   */
   destroy() {
     if (this.resetInterval) {
       clearInterval(this.resetInterval);
@@ -51,7 +100,27 @@ class NewsFetcherService {
   }
 
   /**
-   * FIX: Improved cache checking with better error handling
+   * Fetches news articles for a specific ticker
+   * 
+   * Process:
+   * 1. Checks rate limit (uses cache if limit reached)
+   * 2. Checks cache unless force refresh
+   * 3. Fetches from NewsAPI if needed
+   * 4. Caches results in database
+   * 
+   * @async
+   * @function fetchNewsForTicker
+   * @param {string} ticker - Ticker symbol to fetch news for
+   * @param {boolean} [forceRefresh=false] - Force refresh even if cache exists
+   * 
+   * @returns {Promise<Object>} News data with articles
+   * @returns {string} return.ticker - Ticker symbol
+   * @returns {Array} return.articles - Array of news articles
+   * @returns {Date} return.calculatedAt - When news was fetched
+   * @returns {boolean} [return.cached] - Whether data came from cache
+   * @returns {boolean} [return.rateLimited] - Whether rate limit was hit
+   * 
+   * @throws {Error} If API key not configured or critical error occurs
    */
   async fetchNewsForTicker(ticker, forceRefresh = false) {
     const symbol = ticker.toUpperCase();
@@ -141,7 +210,17 @@ class NewsFetcherService {
   }
 
   /**
-   * FIX: Better error handling and validation
+   * Fetches news from NewsAPI
+   * 
+   * Searches for articles containing the ticker symbol from the last 24 hours.
+   * Handles various error scenarios (rate limits, invalid API key, etc.).
+   * 
+   * @async
+   * @function fetchFromAPI
+   * @param {string} ticker - Ticker symbol to search for
+   * 
+   * @returns {Promise<Array>} Array of news articles
+   * @throws {Error} If rate limit exceeded, invalid API key, or API error
    */
   async fetchFromAPI(ticker) {
     if (!this.apiKey) {
@@ -201,7 +280,15 @@ class NewsFetcherService {
   }
 
   /**
-   * FIX: More robust cache retrieval
+   * Retrieves cached news data from database
+   * 
+   * Returns cached news if it's within the TTL (4 hours).
+   * 
+   * @async
+   * @function getCachedNews
+   * @param {string} ticker - Ticker symbol to get cached news for
+   * 
+   * @returns {Promise<Object|null>} Cached news data or null if not found/expired
    */
   async getCachedNews(ticker) {
     try {
@@ -231,7 +318,14 @@ class NewsFetcherService {
   }
 
   /**
-   * FIX: Better error handling in cache writes
+   * Caches news articles in database
+   * 
+   * Stores news data for future use. Cache write failures don't break the flow.
+   * 
+   * @async
+   * @function cacheNews
+   * @param {string} ticker - Ticker symbol
+   * @param {Array<Object>} articles - Articles to cache
    */
   async cacheNews(ticker, articles) {
     if (!articles || articles.length === 0) {
@@ -268,6 +362,12 @@ class NewsFetcherService {
 
   /**
    * Checks if daily rate limit allows another request
+   * 
+   * Auto-resets counter if 24 hours have passed.
+   * 
+   * @function checkRateLimit
+   * 
+   * @returns {boolean} True if rate limit allows another request
    */
   checkRateLimit() {
     // Auto-reset if 24 hours passed
@@ -280,7 +380,20 @@ class NewsFetcherService {
   }
 
   /**
-   * FIX: Better batch processing with progress tracking
+   * Fetches news for multiple tickers in batch
+   * 
+   * Processes tickers sequentially with delays to respect rate limits.
+   * Stops if rate limit is reached and returns partial results.
+   * 
+   * @async
+   * @function fetchBatchNews
+   * @param {Array<string>} tickers - Array of ticker symbols
+   * 
+   * @returns {Promise<Object>} Batch fetch results
+   * @returns {Object} return.results - Map of ticker to news data
+   * @returns {number} return.processed - Number of successfully processed tickers
+   * @returns {number} return.skipped - Number skipped due to rate limit
+   * @returns {number} return.errors - Number of errors
    */
   async fetchBatchNews(tickers) {
     const results = {};
@@ -334,7 +447,16 @@ class NewsFetcherService {
   }
 
   /**
-   * Gets current rate limit status
+   * Gets current rate limit status for monitoring
+   * 
+   * @function getRateLimitStatus
+   * 
+   * @returns {Object} Rate limit status
+   * @returns {number} return.dailyLimit - Daily request limit
+   * @returns {number} return.used - Number of requests used today
+   * @returns {number} return.remaining - Number of requests remaining
+   * @returns {number} return.resetInMinutes - Minutes until reset
+   * @returns {number} return.percentUsed - Percentage of limit used
    */
   getRateLimitStatus() {
     const remaining = this.dailyLimit - this.requestCount;
@@ -350,7 +472,11 @@ class NewsFetcherService {
   }
 
   /**
-   * Manually reset rate limit counter (for testing)
+   * Manually resets rate limit counter
+   * 
+   * Useful for testing or when switching to a higher tier API key.
+   * 
+   * @function resetRateLimit
    */
   resetRateLimit() {
     this.requestCount = 0;

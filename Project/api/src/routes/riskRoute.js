@@ -1,3 +1,18 @@
+/**
+ * Risk Analysis Routes
+ * 
+ * Defines endpoints for portfolio risk analysis:
+ * - GET /api/risk/portfolio/:portfolioId - Get risk metrics for a portfolio
+ * - POST /api/risk/portfolio/:portfolioId/calculate - Manually trigger risk calculation
+ * - POST /api/risk/portfolio/:portfolioId/simulate - Simulate risk impact of portfolio changes
+ * 
+ * All routes require authentication.
+ * Risk metrics are calculated daily via background job, but can be manually triggered.
+ * 
+ * @module routes/riskRoute
+ * @requires express
+ */
+
 import { Router } from 'express';
 import Joi from 'joi';
 import { requireAuth } from '../middleware/auth.js';

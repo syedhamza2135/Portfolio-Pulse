@@ -1,3 +1,24 @@
+/**
+ * GraphQL Resolvers
+ * 
+ * Implements all GraphQL query and mutation resolvers.
+ * 
+ * Features:
+ * - Authentication checks for protected operations
+ * - User-scoped data access (users can only access their own data)
+ * - DataLoader integration for efficient queries
+ * - Comprehensive error handling with GraphQL error codes
+ * 
+ * Resolvers:
+ * - Query: me, portfolio, portfolios, dashboardData, holding, holdings, portfolioStats, tickerPrice
+ * - Mutation: updateUserPreferences, refreshHoldingPrice, refreshPortfolioPrices
+ * 
+ * @module graphql/resolvers/index
+ * @requires models/user
+ * @requires models/portfolio
+ * @requires models/holdings
+ */
+
 import User from "../../models/user.js";
 import Portfolio from "../../models/portfolio.js";
 import Holding from "../../models/holdings.js";
@@ -5,24 +26,47 @@ import SentimentData from "../../models/sentimentData.js";
 import RiskMetrics from "../../models/riskMetrics.js";
 import { GraphQLError } from "graphql";
 
-// Helper errors
+/**
+ * Helper Error Classes
+ * 
+ * Custom GraphQL errors with appropriate error codes for client handling.
+ */
+
+// Error: Resource not found (404 equivalent)
 class NotFoundError extends GraphQLError {
   constructor(message) {
     super(message, { extensions: { code: "NOT_FOUND" } });
   }
 }
+
+// Error: Access denied (403 equivalent)
 class ForbiddenError extends GraphQLError {
   constructor(message) {
     super(message, { extensions: { code: "FORBIDDEN" } });
   }
 }
+
+// Error: Invalid input (400 equivalent)
 class BadInputError extends GraphQLError {
   constructor(message) {
     super(message, { extensions: { code: "BAD_USER_INPUT" } });
   }
 }
 
-// Auth helpers
+/**
+ * Authentication Helper Functions
+ */
+
+/**
+ * Requires user to be authenticated
+ * 
+ * @function requireAuth
+ * @param {Object} context - GraphQL context object
+ * @param {Object} context.user - Authenticated user (from JWT)
+ * 
+ * @returns {Object} User object
+ * @throws {GraphQLError} If user is not authenticated
+ */
 function requireAuth(context) {
   if (!context.user) {
     throw new GraphQLError('You must be logged in', {
@@ -32,6 +76,15 @@ function requireAuth(context) {
   return context.user;
 }
 
+/**
+ * Extracts user ID from authenticated context
+ * 
+ * @function getUserId
+ * @param {Object} context - GraphQL context object
+ * 
+ * @returns {string} User ID
+ * @throws {GraphQLError} If user is not authenticated or user ID is missing
+ */
 function getUserId(context) {
   const user = requireAuth(context);
   
@@ -44,7 +97,17 @@ function getUserId(context) {
   return user.sub;
 }
 
-// Stats calculation helper
+/**
+ * Calculates aggregated statistics for multiple portfolios
+ * 
+ * Helper function used by portfolioStats query.
+ * 
+ * @async
+ * @function calculatePortfolioStats
+ * @param {Array<Object>} portfolios - Array of portfolio documents
+ * 
+ * @returns {Promise<Object>} Aggregated portfolio statistics
+ */
 async function calculatePortfolioStats(portfolios) {
   const portfolioIds = portfolios.map((p) => p._id);
   const holdings = await Holding.find({ portfolioId: { $in: portfolioIds } });

@@ -1,3 +1,18 @@
+/**
+ * GraphQL Schema Definition
+ * 
+ * Defines the complete GraphQL API schema including:
+ * - Type definitions (User, Portfolio, Holding, etc.)
+ * - Enums (AssetType, PriceSource)
+ * - Input types (for mutations)
+ * - Queries (read operations)
+ * - Mutations (write operations)
+ * 
+ * This schema provides a flexible, type-safe API for frontend applications.
+ * 
+ * @module graphql/schema
+ */
+
 export default `#graphql
   # Core Types
   type User {

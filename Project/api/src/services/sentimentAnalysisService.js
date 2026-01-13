@@ -1,24 +1,97 @@
+/**
+ * Sentiment Analysis Service
+ * 
+ * Provides AI-powered sentiment analysis for financial news articles.
+ * Integrates with a Python FastAPI service that uses FinBERT model.
+ * 
+ * Features:
+ * - Single ticker sentiment analysis
+ * - Batch ticker analysis
+ * - Circuit breaker pattern (prevents cascading failures)
+ * - Caching with fallback to stale data
+ * - Health check monitoring
+ * - Automatic retry with exponential backoff
+ * 
+ * Architecture:
+ * 1. Fetches news articles for ticker
+ * 2. Sends articles to Python sentiment service
+ * 3. Aggregates sentiment scores
+ * 4. Caches results in database
+ * 
+ * @module services/sentimentAnalysisService
+ * @requires axios
+ * @requires services/newsFetcherService
+ * @requires models/sentimentData
+ */
+
 import axios from "axios";
 import SentimentData from "../models/sentimentData.js";
 import newsFetcherService from "./newsFetcherService.js";
 
+/**
+ * Sentiment Analysis Service Class
+ * 
+ * Manages communication with Python sentiment analysis service
+ * and implements resilience patterns (circuit breaker, retries, caching).
+ */
 class SentimentAnalysisService {
+  /**
+   * Initializes the sentiment analysis service
+   * 
+   * Sets up configuration for Python service communication and
+   * circuit breaker state management.
+   */
   constructor() {
+    // Python FastAPI service URL
     this.pythonServiceUrl =
       process.env.PYTHON_SENTIMENT_URL || "http://localhost:8000";
+    
+    // Request timeout (5 seconds)
     this.timeout = 5000;
+    
+    // Retry configuration
     this.maxRetries = 3;
-    this.circuitBreakerThreshold = 10;
+    
+    // Circuit breaker configuration
+    this.circuitBreakerThreshold = 10;  // Open circuit after 10 failures
     this.consecutiveFailures = 0;
     this.circuitOpen = false;
     this.circuitResetTime = null;
     this.circuitResetTimer = null;
+    
+    // Health check caching
     this.lastHealthCheck = null;
-    this.healthCheckInterval = 30000; // 30 seconds
+    this.healthCheckInterval = 30000; // Cache health check for 30 seconds
   }
 
   /**
-   * FIX: Improved sentiment analysis with better error recovery
+   * Analyzes sentiment for a specific ticker
+   * 
+   * Process:
+   * 1. Checks circuit breaker (uses cache if circuit is open)
+   * 2. Fetches news articles for the ticker
+   * 3. Analyzes each article's sentiment via Python service
+   * 4. Calculates aggregate sentiment score
+   * 5. Caches results in database
+   * 
+   * Resilience:
+   * - Circuit breaker prevents overwhelming failing service
+   * - Falls back to cached data on errors
+   * - Returns neutral sentiment if no articles found
+   * 
+   * @async
+   * @function analyzeTicker
+   * @param {string} ticker - Ticker symbol to analyze
+   * @param {boolean} [forceRefresh=false] - Force refresh even if cache exists
+   * 
+   * @returns {Promise<Object>} Sentiment analysis results
+   * @returns {string} return.ticker - Ticker symbol
+   * @returns {number} return.sentimentScore - Aggregate sentiment (-1 to +1)
+   * @returns {Array} return.articles - Articles with individual sentiment scores
+   * @returns {Date} return.calculatedAt - When analysis was performed
+   * @returns {string} return.status - Status: 'success', 'no_articles', 'analysis_failed', 'error', 'cached'
+   * 
+   * @throws {Error} If critical error occurs (circuit breaker will catch most errors)
    */
   async analyzeTicker(ticker, forceRefresh = false) {
     const symbol = ticker.toUpperCase();
@@ -132,7 +205,18 @@ class SentimentAnalysisService {
   }
 
   /**
-   * FIX: Better article analysis with batch processing
+   * Analyzes sentiment for multiple articles in batches
+   * 
+   * Processes articles in batches to avoid overwhelming the Python service.
+   * Uses Promise.allSettled to ensure partial failures don't stop processing.
+   * 
+   * @async
+   * @function analyzeArticles
+   * @param {Array<Object>} articles - Array of news articles to analyze
+   * 
+   * @returns {Promise<Array<Object>>} Articles with sentiment scores added
+   * @returns {number} return[].sentiment - Sentiment score for article (-1 to +1)
+   * @returns {boolean} [return[].error] - True if analysis failed for this article
    */
   async analyzeArticles(articles) {
     if (!articles || articles.length === 0) {
@@ -178,7 +262,20 @@ class SentimentAnalysisService {
   }
 
   /**
-   * FIX: Improved single article analysis
+   * Analyzes sentiment for a single article
+   * 
+   * Combines article title and description for better context.
+   * Sends text to Python service for AI-powered sentiment analysis.
+   * 
+   * @async
+   * @function analyzeArticle
+   * @param {Object} article - Article object with title and description
+   * @param {string} article.title - Article title
+   * @param {string} [article.description] - Article description
+   * 
+   * @returns {Promise<Object>} Article with sentiment score added
+   * @returns {number} return.sentiment - Sentiment score (-1 to +1)
+   * @returns {boolean} [return.error] - True if analysis failed
    */
   async analyzeArticle(article) {
     try {
@@ -209,7 +306,18 @@ class SentimentAnalysisService {
   }
 
   /**
-   * FIX: Improved Python service communication
+   * Calls Python sentiment analysis service
+   * 
+   * Sends text to Python FastAPI service for sentiment analysis.
+   * Implements retry logic with exponential backoff for transient failures.
+   * 
+   * @async
+   * @function callPythonService
+   * @param {string} text - Text to analyze (max 2000 characters)
+   * @param {number} [retries=3] - Number of retry attempts remaining
+   * 
+   * @returns {Promise<number>} Sentiment score (-1 to +1)
+   * @throws {Error} If service is unavailable or returns invalid response
    */
   async callPythonService(text, retries = this.maxRetries) {
     try {
@@ -272,7 +380,14 @@ class SentimentAnalysisService {
   }
 
   /**
-   * FIX: Cached health check to avoid redundant requests
+   * Checks if Python service is healthy (with caching)
+   * 
+   * Caches health check results for 30 seconds to avoid redundant requests.
+   * 
+   * @async
+   * @function isServiceHealthy
+   * 
+   * @returns {Promise<boolean>} True if service is healthy and ready
    */
   async isServiceHealthy() {
     const now = Date.now();
@@ -296,7 +411,16 @@ class SentimentAnalysisService {
   }
 
   /**
-   * Gets cached sentiment data
+   * Retrieves cached sentiment data from database
+   * 
+   * Returns the most recent sentiment analysis for a ticker.
+   * Used as fallback when service is unavailable or for performance.
+   * 
+   * @async
+   * @function getCachedSentiment
+   * @param {string} ticker - Ticker symbol to get cached data for
+   * 
+   * @returns {Promise<Object>} Cached sentiment data or default neutral sentiment
    */
   async getCachedSentiment(ticker) {
     try {
@@ -332,7 +456,19 @@ class SentimentAnalysisService {
   }
 
   /**
-   * FIX: Better batch processing with rate limiting
+   * Analyzes sentiment for multiple tickers in batch
+   * 
+   * Processes tickers sequentially with delays to respect rate limits.
+   * Provides progress logging and error tracking.
+   * 
+   * @async
+   * @function analyzeBatchTickers
+   * @param {Array<string>} tickers - Array of ticker symbols to analyze
+   * 
+   * @returns {Promise<Object>} Batch analysis results
+   * @returns {Object} return.results - Map of ticker to sentiment results
+   * @returns {number} return.processed - Number of successfully processed tickers
+   * @returns {number} return.failed - Number of failed analyses
    */
   async analyzeBatchTickers(tickers) {
     const results = {};
@@ -377,7 +513,14 @@ class SentimentAnalysisService {
   }
 
   /**
-   * Circuit breaker implementation
+   * Opens the circuit breaker
+   * 
+   * Circuit breaker pattern: After threshold failures, stop making requests
+   * to the Python service and use cached data instead. Auto-resets after 5 minutes.
+   * 
+   * This prevents cascading failures and overwhelming a failing service.
+   * 
+   * @function openCircuitBreaker
    */
   openCircuitBreaker() {
     this.circuitOpen = true;
@@ -433,7 +576,14 @@ class SentimentAnalysisService {
   }
 
   /**
-   * Health check for Python service
+   * Performs health check on Python sentiment service
+   * 
+   * Calls the /health endpoint of the Python service to verify it's operational.
+   * 
+   * @async
+   * @function checkPythonServiceHealth
+   * 
+   * @returns {Promise<boolean>} True if service is healthy and model is loaded
    */
   async checkPythonServiceHealth() {
     try {
@@ -453,7 +603,19 @@ class SentimentAnalysisService {
   }
 
   /**
-   * Gets service status for monitoring
+   * Gets current service status for monitoring
+   * 
+   * Returns circuit breaker state and health check information.
+   * Useful for monitoring dashboards and debugging.
+   * 
+   * @function getServiceStatus
+   * 
+   * @returns {Object} Service status information
+   * @returns {string} return.pythonServiceUrl - Python service URL
+   * @returns {boolean} return.circuitOpen - Whether circuit breaker is open
+   * @returns {number} return.consecutiveFailures - Number of consecutive failures
+   * @returns {string|null} return.circuitResetTime - When circuit will auto-reset
+   * @returns {Object|null} return.lastHealthCheck - Last health check result
    */
   getServiceStatus() {
     return {
@@ -473,7 +635,11 @@ class SentimentAnalysisService {
   }
 
   /**
-   * Manual circuit breaker reset (for admin/testing)
+   * Manually resets the circuit breaker
+   * 
+   * Useful for testing or when service issues are resolved.
+   * 
+   * @function resetCircuitBreaker
    */
   resetCircuitBreaker() {
     this.circuitOpen = false;

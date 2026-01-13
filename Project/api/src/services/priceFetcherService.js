@@ -1,6 +1,33 @@
+/**
+ * Price Fetcher Service
+ * 
+ * Fetches current market prices for stocks and cryptocurrencies.
+ * 
+ * Features:
+ * - Multi-layer caching (in-memory + database)
+ * - Support for stocks (Alpha Vantage) and crypto (CoinGecko)
+ * - Batch price fetching for efficiency
+ * - Rate limit handling and retry logic
+ * - Automatic cache cleanup
+ * 
+ * Caching Strategy:
+ * - In-memory cache: Fastest, 5-minute TTL
+ * - Database cache: Persistent, 5-minute TTL
+ * - Cache checked before API calls to minimize external requests
+ * 
+ * @module services/priceFetcherService
+ * @requires axios
+ * @requires models/priceHistory
+ */
+
 import axios from "axios";
 import PriceHistory from "../models/priceHistory.js";
 
+/**
+ * Custom Error: Price not found for ticker
+ * 
+ * Thrown when price data is unavailable for a ticker symbol.
+ */
 export class PriceNotFoundError extends Error {
   constructor(ticker) {
     super(`Price not found for ${ticker}`);
@@ -9,6 +36,11 @@ export class PriceNotFoundError extends Error {
   }
 }
 
+/**
+ * Custom Error: API rate limit reached
+ * 
+ * Thrown when external API rate limit is exceeded.
+ */
 export class RateLimitError extends Error {
   constructor(message = "API limit reached") {
     super(message);
@@ -16,13 +48,32 @@ export class RateLimitError extends Error {
   }
 }
 
+/**
+ * Price Fetcher Service Class
+ * 
+ * Manages price fetching with caching and rate limit handling.
+ */
 class PriceFetcherService {
+  /**
+   * Initializes the price fetcher service
+   * 
+   * Sets up caching, rate limiting, and crypto ticker mapping.
+   */
   constructor() {
+    // In-memory cache for fast lookups
     this.cache = new Map();
-    this.cacheTTL = 5 * 60 * 1000; // 5 minutes (align with PRD)
-    this.rateLimitDelay = 15000; // Alpha Vantage: 1 call per 15s
-    this.cleanupInterval = null; // Track interval for cleanup
+    
+    // Cache TTL: 5 minutes (aligns with PRD requirements)
+    this.cacheTTL = 5 * 60 * 1000;
+    
+    // Rate limit delay for Alpha Vantage (1 call per 15 seconds)
+    this.rateLimitDelay = 15000;
+    
+    // Interval tracker for cleanup
+    this.cleanupInterval = null;
 
+    // Crypto ticker to CoinGecko ID mapping
+    // Maps common crypto tickers to CoinGecko API IDs
     this.cryptoMapping = {
       BTC: "bitcoin",
       ETH: "ethereum",
@@ -42,8 +93,22 @@ class PriceFetcherService {
   }
 
   /**
-   * Fetches a single ticker price (stocks or crypto)
-   * Checks cache first, then fetches from API if needed
+   * Fetches current price for a ticker
+   * 
+   * Process:
+   * 1. Checks in-memory cache
+   * 2. Checks database cache
+   * 3. Fetches from appropriate API if not cached
+   * 4. Caches result in both memory and database
+   * 
+   * @async
+   * @function fetchPrice
+   * @param {string} ticker - Ticker symbol (e.g., 'AAPL', 'BTC')
+   * @param {string} assetType - Asset type: 'stock', 'crypto', or 'etf'
+   * 
+   * @returns {Promise<number>} Current market price
+   * @throws {PriceNotFoundError} If price not found for ticker
+   * @throws {RateLimitError} If API rate limit reached
    */
   async fetchPrice(ticker, assetType) {
     const symbol = ticker.toUpperCase();
@@ -73,8 +138,19 @@ class PriceFetcherService {
   }
 
   /**
-   * Fetches stock price from Alpha Vantage
-   * Includes retry logic for rate limits
+   * Fetches stock price from Alpha Vantage API
+   * 
+   * Uses GLOBAL_QUOTE endpoint to get real-time stock price.
+   * Implements retry logic with exponential backoff for rate limits.
+   * 
+   * @async
+   * @function fetchStockPrice
+   * @param {string} ticker - Stock ticker symbol
+   * @param {number} [retries=2] - Number of retry attempts remaining
+   * 
+   * @returns {Promise<number>} Stock price
+   * @throws {RateLimitError} If rate limit reached after retries
+   * @throws {PriceNotFoundError} If ticker not found
    */
   async fetchStockPrice(ticker, retries = 2) {
     const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
@@ -129,7 +205,17 @@ class PriceFetcherService {
   }
 
   /**
-   * Fetches crypto price from CoinGecko
+   * Fetches cryptocurrency price from CoinGecko API
+   * 
+   * Maps ticker to CoinGecko ID and fetches USD price.
+   * 
+   * @async
+   * @function fetchCryptoPrice
+   * @param {string} ticker - Crypto ticker symbol (e.g., 'BTC', 'ETH')
+   * 
+   * @returns {Promise<number>} Cryptocurrency price in USD
+   * @throws {PriceNotFoundError} If ticker not found in CoinGecko
+   * @throws {RateLimitError} If CoinGecko rate limit reached
    */
   async fetchCryptoPrice(ticker) {
     const coinId = this.cryptoMapping[ticker] || ticker.toLowerCase();
@@ -164,10 +250,20 @@ class PriceFetcherService {
   }
 
   /**
-   * FIX: Optimized batch fetching
-   * 1. Check all caches first
-   * 2. Only fetch uncached tickers
-   * 3. Batch cryptos together
+   * Fetches prices for multiple tickers efficiently
+   * 
+   * Optimization strategy:
+   * 1. Checks cache for all tickers first
+   * 2. Only fetches uncached tickers from API
+   * 3. Batches crypto requests together (CoinGecko supports bulk)
+   * 4. Processes stocks sequentially (Alpha Vantage rate limits)
+   * 
+   * @async
+   * @function fetchBatchPrices
+   * @param {Array<Object>} tickers - Array of {ticker, assetType} objects
+   * 
+   * @returns {Promise<Object>} Map of ticker to price
+   * @returns {number|null} return[ticker] - Price or null if not found
    */
   async fetchBatchPrices(tickers) {
     const results = {};
@@ -257,8 +353,16 @@ class PriceFetcherService {
   }
 
   /**
-   * Gets cached price from memory or database
-   * Returns null if not found or expired
+   * Retrieves cached price from memory or database
+   * 
+   * Checks in-memory cache first (fastest), then database cache.
+   * Returns null if price not found or cache expired.
+   * 
+   * @async
+   * @function getCachedPrice
+   * @param {string} ticker - Ticker symbol to get cached price for
+   * 
+   * @returns {Promise<number|null>} Cached price or null if not found/expired
    */
   async getCachedPrice(ticker) {
     const symbol = ticker.toUpperCase();
@@ -294,6 +398,18 @@ class PriceFetcherService {
 
   /**
    * Caches price in both memory and database
+   * 
+   * Stores price in:
+   * - In-memory Map (fast access)
+   * - Database (persistent, survives restarts)
+   * 
+   * Database write is non-blocking - failures don't break the request.
+   * 
+   * @async
+   * @function cachePrice
+   * @param {string} ticker - Ticker symbol
+   * @param {number} price - Price to cache
+   * @param {string} assetType - Asset type (for database storage)
    */
   async cachePrice(ticker, price, assetType) {
     const symbol = ticker.toUpperCase();
@@ -321,7 +437,12 @@ class PriceFetcherService {
   }
 
   /**
-   * FIX: Properly managed cache cleanup with interval tracking
+   * Starts automatic cache cleanup
+   * 
+   * Removes expired entries from in-memory cache periodically.
+   * Prevents memory leaks from stale cache entries.
+   * 
+   * @function startCacheCleanup
    */
   startCacheCleanup() {
     // Prevent multiple intervals
@@ -353,7 +474,12 @@ class PriceFetcherService {
   }
 
   /**
-   * Graceful shutdown - clears intervals
+   * Graceful shutdown handler
+   * 
+   * Cleans up intervals and clears cache.
+   * Should be called during application shutdown.
+   * 
+   * @function destroy
    */
   destroy() {
     if (this.cleanupInterval) {

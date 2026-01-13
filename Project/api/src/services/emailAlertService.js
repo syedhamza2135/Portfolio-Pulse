@@ -1,18 +1,59 @@
+/**
+ * Email Alert Service
+ * 
+ * Handles sending email notifications for portfolio alerts.
+ * 
+ * Features:
+ * - Portfolio threshold alerts (value change exceeds threshold)
+ * - Holding-specific alerts (individual holding price changes)
+ * - Sentiment alerts (high-impact news sentiment)
+ * - Daily email limit enforcement (3 emails per user per day)
+ * - HTML and plain text email templates
+ * - User preference checking (respects emailEnabled setting)
+ * 
+ * Email Provider: SendGrid
+ * 
+ * @module services/emailAlertService
+ * @requires @sendgrid/mail
+ * @requires models/user
+ */
+
 import sgMail from '@sendgrid/mail';
 import User from '../models/user.js';
-import Portfolio from '../models/portfolio.js';
-import Holding from '../models/holdings.js';
 
+/**
+ * Email Alert Service Class
+ * 
+ * Manages email sending with rate limiting and user preferences.
+ */
 class EmailAlertService {
+  /**
+   * Initializes the email alert service
+   * 
+   * Sets up daily email tracking and rate limiting.
+   */
   constructor() {
     this.initialized = false;
-    this.dailyEmailCount = new Map(); // Track emails per user
-    this.maxEmailsPerDay = 3; // Per PRD requirement
+    
+    // Daily email limit tracking per user
+    this.dailyEmailCount = new Map();
+    
+    // Maximum emails per user per day (PRD requirement)
+    this.maxEmailsPerDay = 3;
+    
+    // Time when daily counter resets
     this.resetTime = Date.now() + 24 * 60 * 60 * 1000;
   }
 
   /**
-   * Initializes SendGrid with API key
+   * Initializes SendGrid email service
+   * 
+   * Configures SendGrid with API key from environment variables.
+   * Service is disabled if API key is not configured.
+   * 
+   * @function initialize
+   * 
+   * @returns {boolean} True if initialization successful, false otherwise
    */
   initialize() {
     const apiKey = process.env.SENDGRID_API_KEY;
@@ -52,8 +93,23 @@ class EmailAlertService {
   }
 
   /**
-   * Sends portfolio threshold alert
-   * Triggered when portfolio value changes exceed user's threshold
+   * Sends portfolio threshold alert email
+   * 
+   * Triggered when portfolio total value change exceeds user's alert threshold.
+   * 
+   * Process:
+   * 1. Checks user preferences (emailEnabled)
+   * 2. Checks daily email limit
+   * 3. Sends HTML and plain text email
+   * 4. Increments email count
+   * 
+   * @async
+   * @function sendPortfolioThresholdAlert
+   * @param {string} userId - User ID to send alert to
+   * @param {Object} portfolioData - Portfolio data
+   * @param {number} changePercent - Percentage change in portfolio value
+   * 
+   * @returns {Promise<boolean>} True if email sent successfully
    */
   async sendPortfolioThresholdAlert(userId, portfolioData, changePercent) {
     if (!this.initialized) {
@@ -105,8 +161,17 @@ class EmailAlertService {
   }
 
   /**
-   * Sends holding-specific alert
-   * Triggered when individual holding changes exceed threshold
+   * Sends holding-specific alert email
+   * 
+   * Triggered when individual holding price change exceeds threshold.
+   * 
+   * @async
+   * @function sendHoldingAlert
+   * @param {string} userId - User ID to send alert to
+   * @param {Object} holdingData - Holding data
+   * @param {number} changePercent - Percentage change in holding price
+   * 
+   * @returns {Promise<boolean>} True if email sent successfully
    */
   async sendHoldingAlert(userId, holdingData, changePercent) {
     if (!this.initialized) return false;
@@ -144,8 +209,20 @@ class EmailAlertService {
   }
 
   /**
-   * Sends sentiment alert for high-impact news
-   * Triggered when sentiment score < -0.7 or > +0.7
+   * Sends sentiment alert email
+   * 
+   * Triggered when sentiment score indicates high-impact news:
+   * - Positive: sentimentScore > +0.7
+   * - Negative: sentimentScore < -0.7
+   * 
+   * @async
+   * @function sendSentimentAlert
+   * @param {string} userId - User ID to send alert to
+   * @param {string} ticker - Ticker symbol with high-impact sentiment
+   * @param {number} sentimentScore - Sentiment score (-1 to +1)
+   * @param {Array<Object>} articles - Articles that triggered the alert
+   * 
+   * @returns {Promise<boolean>} True if email sent successfully
    */
   async sendSentimentAlert(userId, ticker, sentimentScore, articles) {
     if (!this.initialized) return false;
@@ -183,7 +260,16 @@ class EmailAlertService {
   }
 
   /**
-   * HTML template for portfolio alerts
+   * Generates HTML email template for portfolio alerts
+   * 
+   * Creates a responsive HTML email with portfolio value and change information.
+   * Includes styling and call-to-action button.
+   * 
+   * @function generatePortfolioAlertHTML
+   * @param {Object} portfolioData - Portfolio data
+   * @param {number} changePercent - Percentage change in portfolio value
+   * 
+   * @returns {string} HTML email content
    */
   generatePortfolioAlertHTML(portfolioData, changePercent) {
     const changeColor = changePercent >= 0 ? '#10b981' : '#ef4444';
@@ -234,7 +320,15 @@ class EmailAlertService {
   }
 
   /**
-   * Plain text version for portfolio alerts
+   * Generates plain text email template for portfolio alerts
+   * 
+   * Plain text fallback for email clients that don't support HTML.
+   * 
+   * @function generatePortfolioAlertText
+   * @param {Object} portfolioData - Portfolio data
+   * @param {number} changePercent - Percentage change in portfolio value
+   * 
+   * @returns {string} Plain text email content
    */
   generatePortfolioAlertText(portfolioData, changePercent) {
     const direction = changePercent >= 0 ? 'increased' : 'decreased';
@@ -255,7 +349,15 @@ Manage your alert preferences: ${process.env.FRONTEND_URL}/settings
   }
 
   /**
-   * HTML template for holding alerts
+   * Generates HTML email template for holding alerts
+   * 
+   * Creates a responsive HTML email with holding price change information.
+   * 
+   * @function generateHoldingAlertHTML
+   * @param {Object} holdingData - Holding data
+   * @param {number} changePercent - Percentage change in holding price
+   * 
+   * @returns {string} HTML email content
    */
   generateHoldingAlertHTML(holdingData, changePercent) {
     const changeColor = changePercent >= 0 ? '#10b981' : '#ef4444';
@@ -294,7 +396,15 @@ Manage your alert preferences: ${process.env.FRONTEND_URL}/settings
   }
 
   /**
-   * Plain text version for holding alerts
+   * Generates plain text email template for holding alerts
+   * 
+   * Plain text fallback for email clients that don't support HTML.
+   * 
+   * @function generateHoldingAlertText
+   * @param {Object} holdingData - Holding data
+   * @param {number} changePercent - Percentage change in holding price
+   * 
+   * @returns {string} Plain text email content
    */
   generateHoldingAlertText(holdingData, changePercent) {
     const direction = changePercent >= 0 ? 'up' : 'down';
@@ -314,7 +424,16 @@ PortfolioPulse
   }
 
   /**
-   * HTML template for sentiment alerts
+   * Generates HTML email template for sentiment alerts
+   * 
+   * Creates a responsive HTML email with sentiment analysis and top articles.
+   * 
+   * @function generateSentimentAlertHTML
+   * @param {string} ticker - Ticker symbol
+   * @param {number} sentimentScore - Sentiment score (-1 to +1)
+   * @param {Array<Object>} articles - Top articles (up to 3 displayed)
+   * 
+   * @returns {string} HTML email content
    */
   generateSentimentAlertHTML(ticker, sentimentScore, articles) {
     const sentiment = sentimentScore > 0 ? 'Positive' : 'Negative';
@@ -357,7 +476,16 @@ PortfolioPulse
   }
 
   /**
-   * Plain text version for sentiment alerts
+   * Generates plain text email template for sentiment alerts
+   * 
+   * Plain text fallback for email clients that don't support HTML.
+   * 
+   * @function generateSentimentAlertText
+   * @param {string} ticker - Ticker symbol
+   * @param {number} sentimentScore - Sentiment score (-1 to +1)
+   * @param {Array<Object>} articles - Top articles (up to 3 displayed)
+   * 
+   * @returns {string} Plain text email content
    */
   generateSentimentAlertText(ticker, sentimentScore, articles) {
     const sentiment = sentimentScore > 0 ? 'Positive' : 'Negative';
