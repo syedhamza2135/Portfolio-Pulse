@@ -1,15 +1,15 @@
 /**
  * Holdings Controller
- * 
+ *
  * Handles CRUD operations for investment holdings within portfolios.
- * 
+ *
  * Features:
  * - Ownership verification (users can only access their own holdings)
  * - Transaction support for data consistency
  * - Automatic portfolio value recalculation
  * - Optimistic concurrency control with retry logic
  * - Timeout protection for long-running operations
- * 
+ *
  * @module controllers/holdingsController
  * @requires mongoose
  */
@@ -24,18 +24,51 @@ import Portfolio from "../models/portfolio.js";
 import { recalculatePortfolioValues } from "../services/portfolioCalculation.js";
 import { getUserId } from "../utils/authHelpers.js";
 
+const handleControllerError = (res, err, context) => {
+  console.error(`[HoldingController] ${context}:`, err);
+  const status = err.status || (err.name === "CastError" ? 400 : 500);
+  const message = err.message || `Failed to ${context}`;
+  
+  if (err.message === "Portfolio not found or access denied") {
+    return res.status(404).json({ error: message });
+  }
+  if (err.message === "Invalid portfolio ID format") {
+    return res.status(400).json({ error: message });
+  }
+  if (err.message === "Invalid holding ID format") {
+    return res.status(400).json({ error: message });
+  }
+  if (err.message === "Holding not found") {
+    return res.status(404).json({ error: message });
+  }
+  if (err.message === "Access denied") {
+    return res.status(403).json({ error: message });
+  }
+  if (err.code === 11000) {
+    return res.status(409).json({
+      error: "A holding with this ticker already exists in this portfolio",
+    });
+  }
+  if (err.name === "ValidationError") {
+    return res.status(400).json({ error: message });
+  }
+
+  return res.status(status).json({ error: message });
+};
+
+
 /**
  * Verifies that a portfolio belongs to the specified user
- * 
+ *
  * This is a security check to prevent unauthorized access to portfolios.
  * Used before any portfolio-related operations.
- * 
+ *
  * @async
  * @function verifyPortfolioOwnership
  * @param {string} portfolioId - Portfolio ID to verify
  * @param {string} userId - User ID to check ownership against
  * @param {mongoose.ClientSession} [session=null] - Optional MongoDB session for transactions
- * 
+ *
  * @returns {Promise<Object>} Portfolio document if ownership is verified
  * @throws {Error} If portfolio ID is invalid or user doesn't own the portfolio
  */
@@ -59,20 +92,20 @@ async function verifyPortfolioOwnership(portfolioId, userId, session = null) {
 
 /**
  * Verifies that a holding belongs to a portfolio owned by the specified user
- * 
+ *
  * This is a security check to prevent unauthorized access to holdings.
  * Verifies both the holding exists and the user owns the parent portfolio.
- * 
+ *
  * @async
  * @function verifyHoldingOwnership
  * @param {string} holdingId - Holding ID to verify
  * @param {string} userId - User ID to check ownership against
  * @param {mongoose.ClientSession} [session=null] - Optional MongoDB session for transactions
- * 
+ *
  * @returns {Promise<Object>} Object containing holding and portfolio documents
  * @returns {Object} return.holding - Holding document
  * @returns {Object} return.portfolio - Portfolio document
- * 
+ *
  * @throws {Error} If holding ID is invalid, holding not found, or access denied
  */
 async function verifyHoldingOwnership(holdingId, userId, session = null) {
@@ -82,7 +115,7 @@ async function verifyHoldingOwnership(holdingId, userId, session = null) {
   }
 
   const queryOptions = session ? { session } : {};
-  
+
   // Find holding by ID
   const holding = await Holding.findById(holdingId, null, queryOptions);
 
@@ -106,17 +139,17 @@ async function verifyHoldingOwnership(holdingId, userId, session = null) {
 
 /**
  * Updates a holding with optimistic concurrency control and retry logic
- * 
+ *
  * Handles write conflicts that can occur in high-concurrency scenarios.
  * Uses MongoDB's optimistic concurrency control (version field) to detect conflicts.
- * 
+ *
  * @async
  * @function updateHoldingWithRetry
  * @param {Object} holding - Mongoose holding document to update
  * @param {Object} value - New values to apply to the holding
  * @param {mongoose.ClientSession} session - MongoDB session for transaction
  * @param {number} [retries=3] - Maximum number of retry attempts
- * 
+ *
  * @returns {Promise<Object>} Updated holding document
  * @throws {Error} If update fails after all retries
  */
@@ -125,7 +158,6 @@ async function updateHoldingWithRetry(holding, value, session, retries = 3) {
     try {
       // Apply new values to holding
       Object.assign(holding, value);
-      holding.updatedAt = new Date();
 
       // Update price timestamp if price was changed
       if (value.currentPrice !== undefined) {
@@ -142,6 +174,9 @@ async function updateHoldingWithRetry(holding, value, session, retries = 3) {
         console.warn(`[Holding] Write conflict, retry ${i + 1}/${retries}`);
         // Reload the holding to get latest version
         await holding.reload({ session });
+        if (!holding) {
+          throw new Error("Holding was deleted during update");
+        }
         continue; // Retry with fresh data
       }
       throw error; // Re-throw if not a write conflict or out of retries
@@ -151,16 +186,16 @@ async function updateHoldingWithRetry(holding, value, session, retries = 3) {
 
 /**
  * Retrieves all holdings for a specific portfolio
- * 
+ *
  * Security: Verifies user owns the portfolio before returning holdings.
- * 
+ *
  * @async
  * @function getHoldings
  * @param {Object} req - Express request object
  * @param {Object} req.query - Query parameters
  * @param {string} req.query.portfolioId - Portfolio ID to fetch holdings for
  * @param {Object} res - Express response object
- * 
+ *
  * @returns {Array} 200 - Array of holding objects
  * @throws {400} If portfolioId is missing or invalid
  * @throws {404} If portfolio not found or user doesn't own it
@@ -190,19 +225,7 @@ export async function getHoldings(req, res) {
 
     res.json(holdings);
   } catch (err) {
-    console.error("Error fetching holdings:", err);
-
-    // Handle specific error cases
-    if (err.message === "Portfolio not found or access denied") {
-      return res.status(404).json({ error: err.message });
-    }
-
-    if (err.message === "Invalid portfolio ID format") {
-      return res.status(400).json({ error: err.message });
-    }
-
-    // Generic error for unexpected failures
-    res.status(500).json({ error: "Failed to fetch holdings" });
+    handleControllerError(res, err, "fetch holdings");
   }
 }
 
@@ -212,21 +235,7 @@ export async function getHoldingbyID(req, res) {
     const { holding } = await verifyHoldingOwnership(req.params.id, userId);
     res.json(holding);
   } catch (err) {
-    console.error("Error fetching holding:", err);
-
-    if (err.message === "Invalid holding ID format") {
-      return res.status(400).json({ error: err.message });
-    }
-
-    if (err.message === "Holding not found") {
-      return res.status(404).json({ error: err.message });
-    }
-
-    if (err.message === "Access denied") {
-      return res.status(403).json({ error: err.message });
-    }
-
-    res.status(500).json({ error: "Failed to fetch holding" });
+    handleControllerError(res, err, "fetch holding");
   }
 }
 
@@ -269,27 +278,7 @@ export async function createHolding(req, res) {
     await Promise.race([operationPromise, timeoutPromise]);
   } catch (err) {
     await session.abortTransaction();
-    console.error("Error creating holding:", err);
-
-    if (err.message === "Portfolio not found or access denied") {
-      return res.status(404).json({ error: err.message });
-    }
-
-    if (err.message === "Invalid portfolio ID format") {
-      return res.status(400).json({ error: err.message });
-    }
-
-    if (err.code === 11000) {
-      return res.status(409).json({
-        error: "A holding with this ticker already exists in this portfolio",
-      });
-    }
-
-    if (err.name === "ValidationError") {
-      return res.status(400).json({ error: err.message });
-    }
-
-    res.status(500).json({ error: "Failed to create holding" });
+    handleControllerError(res, err, "create holding");
   } finally {
     session.endSession();
   }
@@ -327,7 +316,6 @@ export async function updateHolding(req, res) {
       );
 
       Object.assign(holding, value);
-      holding.updatedAt = new Date();
 
       if (value.currentPrice !== undefined) {
         holding.lastPriceUpdate = new Date();
@@ -343,25 +331,7 @@ export async function updateHolding(req, res) {
     await Promise.race([operationPromise, timeoutPromise]);
   } catch (err) {
     await session.abortTransaction();
-    console.error("Error updating holding:", err);
-
-    if (err.message === "Invalid holding ID format") {
-      return res.status(400).json({ error: err.message });
-    }
-
-    if (err.message === "Holding not found") {
-      return res.status(404).json({ error: err.message });
-    }
-
-    if (err.message === "Access denied") {
-      return res.status(403).json({ error: err.message });
-    }
-
-    if (err.name === "ValidationError") {
-      return res.status(400).json({ error: err.message });
-    }
-
-    res.status(500).json({ error: "Failed to update holding" });
+    handleControllerError(res, err, "update holding");
   } finally {
     session.endSession();
   }
@@ -403,21 +373,7 @@ export async function deleteHolding(req, res) {
     await Promise.race([operationPromise, timeoutPromise]);
   } catch (err) {
     await session.abortTransaction();
-    console.error("Error deleting holding:", err);
-
-    if (err.message === "Invalid holding ID format") {
-      return res.status(400).json({ error: err.message });
-    }
-
-    if (err.message === "Holding not found") {
-      return res.status(404).json({ error: err.message });
-    }
-
-    if (err.message === "Access denied") {
-      return res.status(403).json({ error: err.message });
-    }
-
-    res.status(500).json({ error: "Failed to delete holding" });
+    handleControllerError(res, err, "delete holding");
   } finally {
     session.endSession();
   }

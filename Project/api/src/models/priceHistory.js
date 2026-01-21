@@ -61,6 +61,7 @@ const priceHistorySchema = new mongoose.Schema({
   timestamps: true   // Automatically adds createdAt and updatedAt
 });
 
+priceHistorySchema.index({ ticker: 1 });
 // Compound index for efficient historical price queries
 // Queries by ticker and date (sorted descending for latest first)
 priceHistorySchema.index({ ticker: 1, date: -1 });

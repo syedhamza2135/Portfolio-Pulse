@@ -374,6 +374,7 @@ class NewsFetcherService {
     if (Date.now() >= this.resetTime) {
       this.requestCount = 0;
       this.resetTime = Date.now() + 24 * 60 * 60 * 1000;
+      console.log("[NewsAPI] Daily rate limit counter reset");
     }
 
     return this.requestCount < this.dailyLimit;

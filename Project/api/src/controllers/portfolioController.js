@@ -16,7 +16,11 @@
 import mongoose from "mongoose";
 import Portfolio from "../models/portfolio.js";
 import Holding from "../models/holdings.js";
-import { createPortfolioSchema, updatePortfolioSchema } from "../validation/portfolio.js";
+import {
+  createPortfolioSchema,
+  updatePortfolioSchema,
+} from "../validation/portfolio.js";
+import { getPortfolioValueSummary } from "../services/portfolioCalculation.js";
 import { getUserId } from "../utils/authHelpers.js";
 
 /**
@@ -90,6 +94,10 @@ export async function getPortfoliobyID(req, res) {
     // Fetch all holdings for this portfolio
     // Holdings are sorted by creation date (oldest first)
     portfolio.holdings = await Holding.find({ portfolioId: portfolio._id }).sort({ createdAt: 1 }).lean();
+    
+    // Enrich with calculated summary
+    portfolio.summary = await getPortfolioValueSummary(portfolio._id);
+    
     res.json(portfolio);
   } catch (err) {
     handleControllerError(res, err, "fetch portfolio");
@@ -157,7 +165,7 @@ export async function updatePortfolio(req, res) {
     // runValidators: true ensures schema validation runs
     const portfolio = await Portfolio.findOneAndUpdate(
       { _id: req.params.id, userId: getUserId(req) },
-      { ...value, lastUpdated: new Date() },
+      { ...value },
       { new: true, runValidators: true }
     );
 

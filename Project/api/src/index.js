@@ -76,7 +76,7 @@ async function start() {
     // - minPoolSize: Minimum connections to maintain (10)
     // - serverSelectionTimeoutMS: Time to wait for server selection (5s)
     // - socketTimeoutMS: Time before socket times out (45s)
-    // - family: 4 = IPv4 only (faster, more reliable)
+    // - family: 4 = IPv4 only
     console.log("[System] Connecting to MongoDB...");
     await mongoose.connect(process.env.MONGO_URI, {
       maxPoolSize: 50,
@@ -212,7 +212,12 @@ async function gracefulShutdown(signal) {
   // Close HTTP server (stops accepting new connections)
   // Existing connections are allowed to complete
   if (httpServerInstance) {
-    httpServerInstance.close(() => console.log("✓ HTTP server closed"));
+    await new Promise((resolve) => {
+      httpServerInstance.close(() => {
+        console.log("✓ HTTP server closed");
+        resolve();
+      });
+    });
   }
 
   // Close MongoDB connection
@@ -229,6 +234,7 @@ async function gracefulShutdown(signal) {
   priceFetcher.destroy?.();
   newsFetcherService.destroy?.();
   sentimentAnalysisService.destroy?.();
+  emailAlertService.destroy?.();
 
   console.log("✓ Cleanup complete. Goodbye!");
   process.exit(0);

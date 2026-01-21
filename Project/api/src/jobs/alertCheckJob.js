@@ -26,7 +26,9 @@ import cron from "node-cron";
 import User from "../models/user.js";
 import Portfolio from "../models/portfolio.js";
 import Holding from "../models/holdings.js";
+import SentimentData from "../models/sentimentData.js";
 import emailAlertService from "../services/emailAlertService.js";
+import newsFetcherService from "../services/newsFetcherService.js";
 
 /**
  * Alert Checker Class
@@ -69,6 +71,7 @@ class AlertChecker {
 
       let portfolioAlertsTriggered = 0;
       let holdingAlertsTriggered = 0;
+      let sentimentAlertsTriggered = 0;
 
       async function delay(ms) {
         return new Promise((resolve) => {
@@ -99,6 +102,10 @@ class AlertChecker {
             holdingAlertsTriggered += holdingAlerts;
           }
 
+          // Check sentiment alerts
+          const sentimentAlerts = await this.checkSentimentAlerts(user);
+          sentimentAlertsTriggered += sentimentAlerts;
+
           // Small delay between users to avoid rate limits
           await delay(500);
         } catch (error) {
@@ -110,7 +117,7 @@ class AlertChecker {
       }
 
       console.log(
-        `[AlertJob] ✓ Complete. Portfolio alerts: ${portfolioAlertsTriggered}, Holding alerts: ${holdingAlertsTriggered}`
+        `[AlertJob] ✓ Complete. Portfolio alerts: ${portfolioAlertsTriggered}, Holding alerts: ${holdingAlertsTriggered}, Sentiment alerts: ${sentimentAlertsTriggered}`
       );
     } catch (error) {
       console.error("[AlertJob] Critical error:", error);
@@ -232,6 +239,58 @@ class AlertChecker {
       return alertsSent;
     } catch (error) {
       console.error("[AlertJob] Holding threshold check error:", error.message);
+      return 0;
+    }
+  }
+
+  /**
+   * Checks for high-impact news sentiment and sends alerts
+   */
+  async checkSentimentAlerts(user) {
+    try {
+      const holdings = await Holding.find({ userId: user._id }).select('ticker').lean();
+      const uniqueTickers = [...new Set(holdings.map(h => h.ticker))];
+      
+      let alertsSent = 0;
+
+      for (const ticker of uniqueTickers) {
+        const sentiment = await SentimentData.findOne({ ticker }).sort({ timestamp: -1 }).lean();
+
+        if (!sentiment) continue;
+
+        const { sentiment: sentimentScore } = sentiment;
+        const SENTIMENT_THRESHOLD = 0.7; // PRD: High impact is >= +0.7 or <= -0.7
+
+        if (Math.abs(sentimentScore) >= SENTIMENT_THRESHOLD) {
+          const lastAlertKey = `sentiment_${ticker}`;
+          const lastAlertTime = this.lastCheckedPrices.get(lastAlertKey);
+          
+          const COOLDOWN_MS = 12 * 60 * 60 * 1000; // 12-hour cooldown for sentiment alerts
+          const now = Date.now();
+
+          if (!lastAlertTime || now - lastAlertTime >= COOLDOWN_MS) {
+            // Fetch articles for the alert email
+            const articles = await newsFetcherService.fetchNews(ticker, 5);
+            
+            const sent = await emailAlertService.sendSentimentAlert(
+              user._id,
+              ticker,
+              sentimentScore,
+              articles
+            );
+
+            if (sent) {
+              this.lastCheckedPrices.set(lastAlertKey, now);
+              alertsSent++;
+              console.log(`[AlertJob] ✓ Sentiment alert sent to ${user.email} for ${ticker}`);
+            }
+          }
+        }
+      }
+
+      return alertsSent;
+    } catch (error) {
+      console.error('[AlertJob] Sentiment alert check error:', error.message);
       return 0;
     }
   }

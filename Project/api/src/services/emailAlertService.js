@@ -43,6 +43,51 @@ class EmailAlertService {
     
     // Time when daily counter resets
     this.resetTime = Date.now() + 24 * 60 * 60 * 1000;
+    
+    // Track cleanup interval to prevent memory leak
+    this.cleanupInterval = null;
+    
+    // Start automatic cleanup
+    this.startDailyReset();
+  }
+
+  /**
+   * Starts automatic daily counter reset
+   * Prevents memory leak by properly managing the interval
+   */
+  startDailyReset() {
+    // Clear existing interval if any
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+
+    // Check every hour if reset is needed
+    this.cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      if (now >= this.resetTime) {
+        this.dailyEmailCount.clear();
+        this.resetTime = now + 24 * 60 * 60 * 1000;
+        console.log('[EmailAlert] Daily email counter reset');
+      }
+    }, 60 * 60 * 1000); // Check every hour
+
+    // Allow process to exit even if interval is running
+    if (this.cleanupInterval.unref) {
+      this.cleanupInterval.unref();
+    }
+  }
+
+  /**
+   * Graceful cleanup - clears intervals
+   */
+  destroy() {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+    this.dailyEmailCount.clear();
+    console.log('✓ EmailAlertService destroyed');
   }
 
   /**
@@ -63,17 +108,25 @@ class EmailAlertService {
       return false;
     }
 
-    sgMail.setApiKey(apiKey);
-    this.initialized = true;
-    console.log('✓ SendGrid email service initialized');
-    return true;
+    try {
+      sgMail.setApiKey(apiKey);
+      this.initialized = true;
+      console.log('✓ SendGrid email service initialized');
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to initialize SendGrid:', error.message);
+      return false;
+    }
   }
 
   /**
    * Checks if user has exceeded daily email limit
+   * 
+   * @param {string} userId - User ID to check
+   * @returns {boolean} True if user can receive more emails today
    */
   canSendEmail(userId) {
-    // Reset counter if 24 hours have passed
+    // Auto-reset counter if 24 hours have passed
     if (Date.now() > this.resetTime) {
       this.dailyEmailCount.clear();
       this.resetTime = Date.now() + 24 * 60 * 60 * 1000;
@@ -85,11 +138,24 @@ class EmailAlertService {
 
   /**
    * Increments email count for user
+   * 
+   * @param {string} userId - User ID to increment count for
    */
   incrementEmailCount(userId) {
     const userIdStr = userId.toString();
     const current = this.dailyEmailCount.get(userIdStr) || 0;
     this.dailyEmailCount.set(userIdStr, current + 1);
+  }
+
+  /**
+   * FIX: Gets remaining email count for user
+   * 
+   * @param {string} userId - User ID to check
+   * @returns {number} Number of emails remaining today
+   */
+  getRemainingEmails(userId) {
+    const count = this.dailyEmailCount.get(userId.toString()) || 0;
+    return Math.max(0, this.maxEmailsPerDay - count);
   }
 
   /**
@@ -107,6 +173,10 @@ class EmailAlertService {
    * @function sendPortfolioThresholdAlert
    * @param {string} userId - User ID to send alert to
    * @param {Object} portfolioData - Portfolio data
+   * @param {string} portfolioData.name - Portfolio name
+   * @param {number} portfolioData.totalValue - Current portfolio value
+   * @param {number} portfolioData.dailyChange - Dollar change
+   * @param {string} [portfolioData.userId] - Optional user ID for email count display
    * @param {number} changePercent - Percentage change in portfolio value
    * 
    * @returns {Promise<boolean>} True if email sent successfully
@@ -118,6 +188,12 @@ class EmailAlertService {
     }
 
     try {
+      // Input validation
+      if (!userId || !portfolioData || typeof changePercent !== 'number') {
+        console.error('[EmailAlert] Invalid parameters for portfolio alert');
+        return false;
+      }
+
       // Check user preferences
       const user = await User.findById(userId).select('email preferences').lean();
       
@@ -133,7 +209,8 @@ class EmailAlertService {
 
       // Check daily limit
       if (!this.canSendEmail(userId)) {
-        console.warn(`[EmailAlert] Daily limit reached for user ${user.email}`);
+        const resetHours = Math.ceil((this.resetTime - Date.now()) / 3600000);
+        console.warn(`[EmailAlert] Daily limit reached for user ${user.email} (resets in ${resetHours}h)`);
         return false;
       }
 
@@ -148,14 +225,30 @@ class EmailAlertService {
         html: this.generatePortfolioAlertHTML(portfolioData, changePercent)
       };
 
-      await sgMail.send(msg);
+      // Timeout and Error handling
+      await Promise.race([
+        sgMail.send(msg),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Email send timeout')), 10000)
+        )
+      ]);
+
       this.incrementEmailCount(userId);
       
-      console.log(`[EmailAlert] ✓ Sent portfolio alert to ${user.email}`);
+      console.log(`[EmailAlert] ✓ Sent portfolio alert to ${user.email} (${this.getRemainingEmails(userId)} remaining today)`);
       return true;
 
     } catch (error) {
       console.error('[EmailAlert] Send error:', error.message);
+      
+      // Log SendGrid-specific errors
+      if (error.response) {
+        console.error('[EmailAlert] SendGrid response:', {
+          statusCode: error.response.statusCode,
+          body: error.response.body
+        });
+      }
+      
       return false;
     }
   }
@@ -169,6 +262,10 @@ class EmailAlertService {
    * @function sendHoldingAlert
    * @param {string} userId - User ID to send alert to
    * @param {Object} holdingData - Holding data
+   * @param {string} holdingData.ticker - Ticker symbol
+   * @param {number} holdingData.currentPrice - Current price
+   * @param {number} holdingData.quantity - Number of shares
+   * @param {string} holdingData._id - Holding ID
    * @param {number} changePercent - Percentage change in holding price
    * 
    * @returns {Promise<boolean>} True if email sent successfully
@@ -177,11 +274,19 @@ class EmailAlertService {
     if (!this.initialized) return false;
 
     try {
+      // Input validation
+      if (!userId || !holdingData || typeof changePercent !== 'number') {
+        console.error('[EmailAlert] Invalid parameters for holding alert');
+        return false;
+      }
+
       const user = await User.findById(userId).select('email preferences').lean();
       
       if (!user?.preferences?.emailEnabled) return false;
+      
       if (!this.canSendEmail(userId)) {
-        console.warn(`[EmailAlert] Daily limit reached for user ${user.email}`);
+        const resetHours = Math.ceil((this.resetTime - Date.now()) / 3600000);
+        console.warn(`[EmailAlert] Daily limit reached for user ${user.email} (resets in ${resetHours}h)`);
         return false;
       }
 
@@ -196,7 +301,14 @@ class EmailAlertService {
         html: this.generateHoldingAlertHTML(holdingData, changePercent)
       };
 
-      await sgMail.send(msg);
+      // Timeout
+      await Promise.race([
+        sgMail.send(msg),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Email send timeout')), 10000)
+        )
+      ]);
+
       this.incrementEmailCount(userId);
       
       console.log(`[EmailAlert] ✓ Sent holding alert (${holdingData.ticker}) to ${user.email}`);
@@ -228,11 +340,19 @@ class EmailAlertService {
     if (!this.initialized) return false;
 
     try {
+      // Input validation
+      if (!userId || !ticker || typeof sentimentScore !== 'number' || !Array.isArray(articles)) {
+        console.error('[EmailAlert] Invalid parameters for sentiment alert');
+        return false;
+      }
+
       const user = await User.findById(userId).select('email preferences').lean();
       
       if (!user?.preferences?.emailEnabled) return false;
+      
       if (!this.canSendEmail(userId)) {
-        console.warn(`[EmailAlert] Daily limit reached for user ${user.email}`);
+        const resetHours = Math.ceil((this.resetTime - Date.now()) / 3600000);
+        console.warn(`[EmailAlert] Daily limit reached for user ${user.email} (resets in ${resetHours}h)`);
         return false;
       }
 
@@ -247,7 +367,14 @@ class EmailAlertService {
         html: this.generateSentimentAlertHTML(ticker, sentimentScore, articles)
       };
 
-      await sgMail.send(msg);
+      // Timeout
+      await Promise.race([
+        sgMail.send(msg),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Email send timeout')), 10000)
+        )
+      ]);
+
       this.incrementEmailCount(userId);
       
       console.log(`[EmailAlert] ✓ Sent sentiment alert (${ticker}) to ${user.email}`);
@@ -275,12 +402,20 @@ class EmailAlertService {
     const changeColor = changePercent >= 0 ? '#10b981' : '#ef4444';
     const direction = changePercent >= 0 ? '▲' : '▼';
     
+    // FIX: Safe fallback for missing values
+    const portfolioName = portfolioData?.name || 'Your Portfolio';
+    const totalValue = portfolioData?.totalValue || 0;
+    const dailyChange = portfolioData?.dailyChange || 0;
+    const currentCount = this.dailyEmailCount.get(portfolioData.userId?.toString()) || 1;
+    
     return `
       <!DOCTYPE html>
       <html>
       <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
           .header { background: #1f2937; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
           .content { background: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
@@ -288,6 +423,7 @@ class EmailAlertService {
           .change { font-size: 24px; font-weight: bold; color: ${changeColor}; }
           .button { display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin-top: 20px; }
           .footer { text-align: center; color: #6b7280; font-size: 12px; margin-top: 20px; }
+          a { color: #3b82f6; }
         </style>
       </head>
       <body>
@@ -296,21 +432,21 @@ class EmailAlertService {
             <h1>📊 Portfolio Alert</h1>
           </div>
           <div class="content">
-            <h2>${portfolioData.name}</h2>
+            <h2>${portfolioName}</h2>
             <div class="metric">
               <p style="margin: 0; color: #6b7280;">Current Value</p>
-              <p style="margin: 5px 0; font-size: 28px; font-weight: bold;">$${portfolioData.totalValue.toFixed(2)}</p>
+              <p style="margin: 5px 0; font-size: 28px; font-weight: bold;">$${totalValue.toFixed(2)}</p>
             </div>
             <div class="metric">
               <p style="margin: 0; color: #6b7280;">Change</p>
               <p class="change">${direction} ${Math.abs(changePercent).toFixed(2)}%</p>
-              <p style="margin: 5px 0; color: ${changeColor};">$${Math.abs(portfolioData.dailyChange).toFixed(2)}</p>
+              <p style="margin: 5px 0; color: ${changeColor};">$${Math.abs(dailyChange).toFixed(2)}</p>
             </div>
             <p>Your portfolio value has changed significantly. Click below to view details.</p>
             <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard" class="button">View Dashboard</a>
             <div class="footer">
-              <p>PortfolioPulse | <a href="${process.env.FRONTEND_URL}/settings">Manage Alerts</a></p>
-              <p>This is alert ${this.dailyEmailCount.get(portfolioData.userId?.toString()) || 1} of ${this.maxEmailsPerDay} today</p>
+              <p>PortfolioPulse | <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/settings">Manage Alerts</a></p>
+              <p>This is alert ${currentCount} of ${this.maxEmailsPerDay} today</p>
             </div>
           </div>
         </div>
@@ -332,19 +468,23 @@ class EmailAlertService {
    */
   generatePortfolioAlertText(portfolioData, changePercent) {
     const direction = changePercent >= 0 ? 'increased' : 'decreased';
+    const portfolioName = portfolioData?.name || 'Your Portfolio';
+    const totalValue = portfolioData?.totalValue || 0;
+    const dailyChange = portfolioData?.dailyChange || 0;
+    
     return `
-Portfolio Alert: ${portfolioData.name}
+Portfolio Alert: ${portfolioName}
 
 Your portfolio has ${direction} by ${Math.abs(changePercent).toFixed(2)}%
 
-Current Value: $${portfolioData.totalValue.toFixed(2)}
-Change: $${Math.abs(portfolioData.dailyChange).toFixed(2)}
+Current Value: $${totalValue.toFixed(2)}
+Change: $${Math.abs(dailyChange).toFixed(2)}
 
 View your dashboard: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard
 
 ---
 PortfolioPulse
-Manage your alert preferences: ${process.env.FRONTEND_URL}/settings
+Manage your alert preferences: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/settings
     `.trim();
   }
 
@@ -363,12 +503,20 @@ Manage your alert preferences: ${process.env.FRONTEND_URL}/settings
     const changeColor = changePercent >= 0 ? '#10b981' : '#ef4444';
     const direction = changePercent >= 0 ? '▲' : '▼';
     
+    // Safe fallback for missing values
+    const ticker = holdingData?.ticker || 'N/A';
+    const currentPrice = holdingData?.currentPrice || 0;
+    const quantity = holdingData?.quantity || 0;
+    const holdingId = holdingData?._id || '';
+    
     return `
       <!DOCTYPE html>
       <html>
       <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
           .header { background: #1f2937; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
           .content { background: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
@@ -383,11 +531,11 @@ Manage your alert preferences: ${process.env.FRONTEND_URL}/settings
             <h1>📈 Holding Alert</h1>
           </div>
           <div class="content">
-            <div class="ticker">${holdingData.ticker}</div>
+            <div class="ticker">${ticker}</div>
             <p class="change">${direction} ${Math.abs(changePercent).toFixed(2)}%</p>
-            <p>Current Price: $${holdingData.currentPrice.toFixed(2)}</p>
-            <p>Your Position: ${holdingData.quantity} shares</p>
-            <a href="${process.env.FRONTEND_URL}/holdings/${holdingData._id}" class="button">View Details</a>
+            <p>Current Price: $${currentPrice.toFixed(2)}</p>
+            <p>Your Position: ${quantity} shares</p>
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/holdings/${holdingId}" class="button">View Details</a>
           </div>
         </div>
       </body>
@@ -408,15 +556,20 @@ Manage your alert preferences: ${process.env.FRONTEND_URL}/settings
    */
   generateHoldingAlertText(holdingData, changePercent) {
     const direction = changePercent >= 0 ? 'up' : 'down';
+    const ticker = holdingData?.ticker || 'N/A';
+    const currentPrice = holdingData?.currentPrice || 0;
+    const quantity = holdingData?.quantity || 0;
+    const holdingId = holdingData?._id || '';
+    
     return `
-Holding Alert: ${holdingData.ticker}
+Holding Alert: ${ticker}
 
 Price is ${direction} ${Math.abs(changePercent).toFixed(2)}%
 
-Current Price: $${holdingData.currentPrice.toFixed(2)}
-Your Position: ${holdingData.quantity} shares
+Current Price: $${currentPrice.toFixed(2)}
+Your Position: ${quantity} shares
 
-View details: ${process.env.FRONTEND_URL}/holdings/${holdingData._id}
+View details: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/holdings/${holdingId}
 
 ---
 PortfolioPulse
@@ -438,14 +591,18 @@ PortfolioPulse
   generateSentimentAlertHTML(ticker, sentimentScore, articles) {
     const sentiment = sentimentScore > 0 ? 'Positive' : 'Negative';
     const color = sentimentScore > 0 ? '#10b981' : '#ef4444';
-    const topArticles = articles.slice(0, 3);
+    
+    // Safe fallback for empty articles
+    const topArticles = (articles || []).slice(0, 3);
     
     return `
       <!DOCTYPE html>
       <html>
       <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
           .header { background: ${color}; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
           .content { background: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
@@ -461,13 +618,15 @@ PortfolioPulse
           <div class="content">
             <p class="score">${sentimentScore > 0 ? '+' : ''}${sentimentScore.toFixed(2)}</p>
             <p>High-impact ${sentiment.toLowerCase()} sentiment detected</p>
-            <h3>Recent Articles:</h3>
-            ${topArticles.map(a => `
-              <div class="article">
-                <strong>${a.title}</strong><br>
-                <small>${new Date(a.publishedAt).toLocaleDateString()}</small>
-              </div>
-            `).join('')}
+            ${topArticles.length > 0 ? `
+              <h3>Recent Articles:</h3>
+              ${topArticles.map(a => `
+                <div class="article">
+                  <strong>${a?.title || 'Untitled Article'}</strong><br>
+                  <small>${a?.publishedAt ? new Date(a.publishedAt).toLocaleDateString() : 'Date unknown'}</small>
+                </div>
+              `).join('')}
+            ` : '<p>No recent articles available.</p>'}
           </div>
         </div>
       </body>
@@ -489,7 +648,11 @@ PortfolioPulse
    */
   generateSentimentAlertText(ticker, sentimentScore, articles) {
     const sentiment = sentimentScore > 0 ? 'Positive' : 'Negative';
-    const topArticles = articles.slice(0, 3);
+    const topArticles = (articles || []).slice(0, 3);
+    
+    const articleText = topArticles.length > 0
+      ? topArticles.map(a => `- ${a?.title || 'Untitled'} (${a?.publishedAt ? new Date(a.publishedAt).toLocaleDateString() : 'Date unknown'})`).join('\n')
+      : '- No recent articles available';
     
     return `
 Sentiment Alert: ${ticker}
@@ -497,13 +660,28 @@ Sentiment Alert: ${ticker}
 ${sentiment} sentiment detected: ${sentimentScore > 0 ? '+' : ''}${sentimentScore.toFixed(2)}
 
 Recent Articles:
-${topArticles.map(a => `- ${a.title} (${new Date(a.publishedAt).toLocaleDateString()})`).join('\n')}
+${articleText}
 
-View full analysis: ${process.env.FRONTEND_URL}/holdings
+View full analysis: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/holdings
 
 ---
 PortfolioPulse
     `.trim();
+  }
+
+  /**
+   * Get service status for monitoring
+   * 
+   * @returns {Object} Service status information
+   */
+  getStatus() {
+    return {
+      initialized: this.initialized,
+      maxEmailsPerDay: this.maxEmailsPerDay,
+      activeUsers: this.dailyEmailCount.size,
+      resetTime: new Date(this.resetTime).toISOString(),
+      resetInHours: Math.ceil((this.resetTime - Date.now()) / 3600000)
+    };
   }
 }
 

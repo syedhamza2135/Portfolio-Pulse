@@ -28,13 +28,12 @@ import priceUpdateService from '../services/priceUpdateService.js';
  * Tracks consecutive failures and alerts when manual intervention is needed.
  * 
  * Cron Schedule Format: minute hour day-of-month month day-of-week
- * Default: '*/15 14-20 * * 1-5' = Every 15 minutes, 14:00-20:00 UTC, Mon-Fri
+ * Default: Every 15 minutes, 14:00-20:00 UTC, Mon-Fri
  * 
  * @function startPriceUpdateJob
  * 
  * @example
  * // Custom schedule: Every 30 minutes during market hours
- * PRICE_UPDATE_CRON='*/30 14-20 * * 1-5'
  */
 export function startPriceUpdateJob() {
   let consecutiveFailures = 0;

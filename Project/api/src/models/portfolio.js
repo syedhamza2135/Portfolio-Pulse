@@ -53,11 +53,6 @@ const portfolioSchema = new mongoose.Schema({
     dailyChange: { 
         type: Number, 
         default: 0
-    },
-    // Timestamp of last portfolio value recalculation
-    lastUpdated: { 
-        type: Date, 
-        default: Date.now
     }
 }, {
     timestamps: true,  // Automatically adds createdAt and updatedAt

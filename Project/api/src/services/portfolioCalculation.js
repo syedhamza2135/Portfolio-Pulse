@@ -15,6 +15,7 @@
 
 import Portfolio from '../models/portfolio.js';
 import Holding from '../models/holdings.js';
+import { Decimal } from 'decimal.js';
 
 /**
  * Recalculates and updates portfolio total value and daily change
@@ -47,27 +48,26 @@ export async function recalculatePortfolioValues(portfolioId, session = null) {
     
     const holdings = await Holding.find({ portfolioId }, null, queryOptions);
     
-    let totalInvestment = 0;
-    let currentValue = 0;
+    let totalInvestment = new Decimal(0);
+    let currentValue = new Decimal(0);
     
     holdings.forEach(holding => {
-      const cost = holding.quantity * holding.averageCost;
-      totalInvestment += cost;
+      const cost = new Decimal(holding.quantity).times(holding.averageCost);
+      totalInvestment = totalInvestment.plus(cost);
       
-      const value = holding.currentPrice > 0
-        ? holding.quantity * holding.currentPrice
+      const value = new Decimal(holding.currentPrice).gt(0)
+        ? new Decimal(holding.quantity).times(holding.currentPrice)
         : cost;
-      currentValue += value;
+      currentValue = currentValue.plus(value);
     });
     
-    const dailyChange = currentValue - totalInvestment;
+    const dailyChange = currentValue.minus(totalInvestment);
     
     const updatedPortfolio = await Portfolio.findByIdAndUpdate(
       portfolioId,
       {
-        totalValue: Math.round(currentValue * 100) / 100,
-        dailyChange: Math.round(dailyChange * 100) / 100,
-        lastUpdated: new Date()
+        totalValue: currentValue.toDecimalPlaces(2).toNumber(),
+        dailyChange: dailyChange.toDecimalPlaces(2).toNumber(),
       },
       { new: true, ...queryOptions }
     );
@@ -79,7 +79,7 @@ export async function recalculatePortfolioValues(portfolioId, session = null) {
     return {
       totalValue: updatedPortfolio.totalValue,
       dailyChange: updatedPortfolio.dailyChange,
-      totalInvestment: Math.round(totalInvestment * 100) / 100,
+      totalInvestment: totalInvestment.toDecimalPlaces(2).toNumber(),
       holdingCount: holdings.length
     };
     
@@ -161,32 +161,32 @@ export async function getPortfolioValueSummary(portfolioId) {
   try {
     const holdings = await Holding.find({ portfolioId }).lean();
     
-    let totalInvestment = 0;
-    let currentValue = 0;
+    let totalInvestment = new Decimal(0);
+    let currentValue = new Decimal(0);
     let holdingsWithCurrentPrice = 0;
     
     holdings.forEach(holding => {
-      const cost = holding.quantity * holding.averageCost;
-      totalInvestment += cost;
+      const cost = new Decimal(holding.quantity).times(holding.averageCost);
+      totalInvestment = totalInvestment.plus(cost);
       
-      if (holding.currentPrice > 0) {
+      if (new Decimal(holding.currentPrice).gt(0)) {
         holdingsWithCurrentPrice++;
-        currentValue += holding.quantity * holding.currentPrice;
+        currentValue = currentValue.plus(new Decimal(holding.quantity).times(holding.currentPrice));
       } else {
-        currentValue += cost;
+        currentValue = currentValue.plus(cost);
       }
     });
     
-    const profitLoss = currentValue - totalInvestment;
-    const profitLossPercent = totalInvestment > 0
-      ? (profitLoss / totalInvestment) * 100
-      : 0;
+    const profitLoss = currentValue.minus(totalInvestment);
+    const profitLossPercent = totalInvestment.gt(0)
+      ? profitLoss.div(totalInvestment).times(100)
+      : new Decimal(0);
     
     return {
-      totalInvestment: Math.round(totalInvestment * 100) / 100,
-      currentValue: Math.round(currentValue * 100) / 100,
-      profitLoss: Math.round(profitLoss * 100) / 100,
-      profitLossPercent: Math.round(profitLossPercent * 100) / 100,
+      totalInvestment: totalInvestment.toDecimalPlaces(2).toNumber(),
+      currentValue: currentValue.toDecimalPlaces(2).toNumber(),
+      profitLoss: profitLoss.toDecimalPlaces(2).toNumber(),
+      profitLossPercent: profitLossPercent.toDecimalPlaces(2).toNumber(),
       totalHoldings: holdings.length,
       holdingsWithCurrentPrice,
       needsPriceUpdate: holdingsWithCurrentPrice < holdings.length

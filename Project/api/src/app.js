@@ -100,13 +100,13 @@ app.use('/api/', apiLimiter);
  * All routes are prefixed with '/api' for REST endpoints
  * GraphQL endpoint is mounted separately at '/graphql'
  */
-app.use('/api', meRoutes);              // User profile endpoints
-app.use('/api/health', healthRoutes);   // Health check endpoints
-app.use('/api/auth', authRoutes);       // Authentication endpoints
-app.use('/api/portfolios', portfolioRoutes);  // Portfolio management
+app.use('/api', meRoutes);                   // User profile endpoints
+app.use('/api/health', healthRoutes);        // Health check endpoints
+app.use('/api/auth', authRoutes);            // Authentication endpoints
+app.use('/api/portfolios', portfolioRoutes); // Portfolio management
 app.use('/api/holdings', holdingRoutes);     // Holdings management
 app.use('/api/prices', priceRoutes);         // Price data endpoints
-app.use('/api/sentiment', sentimentRoutes);   // Sentiment analysis
+app.use('/api/sentiment', sentimentRoutes);  // Sentiment analysis
 app.use('/api/risk', riskRoutes);            // Risk metrics
 
 // ============================================================================

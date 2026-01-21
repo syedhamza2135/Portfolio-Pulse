@@ -109,6 +109,29 @@ class SentimentAnalysisService {
         forceRefresh
       );
 
+      return await this._analyzeTickerFromNews(symbol, newsData);
+    } catch (error) {
+      console.error(`[Sentiment] Error analyzing ${symbol}:`, error.message);
+
+      // Increment failure counter
+      this.consecutiveFailures++;
+      if (this.consecutiveFailures >= this.circuitBreakerThreshold) {
+        this.openCircuitBreaker();
+      }
+
+      // Return cached data as fallback
+      const cached = await this.getCachedSentiment(symbol);
+      return {
+        ...cached,
+        status: "error",
+        error: error.message,
+      };
+    }
+  }
+
+  async _analyzeTickerFromNews(ticker, newsData) {
+    const symbol = ticker.toUpperCase();
+    try {
       // Handle empty or error results
       if (!newsData || !newsData.articles || newsData.articles.length === 0) {
         console.log(`[Sentiment] No articles for ${symbol}, returning neutral`);
@@ -186,14 +209,7 @@ class SentimentAnalysisService {
         status: "success",
       };
     } catch (error) {
-      console.error(`[Sentiment] Error analyzing ${symbol}:`, error.message);
-
-      // Increment failure counter
-      this.consecutiveFailures++;
-      if (this.consecutiveFailures >= this.circuitBreakerThreshold) {
-        this.openCircuitBreaker();
-      }
-
+      console.error(`[Sentiment] Error in _analyzeTickerFromNews for ${symbol}:`, error.message);
       // Return cached data as fallback
       const cached = await this.getCachedSentiment(symbol);
       return {
@@ -479,32 +495,33 @@ class SentimentAnalysisService {
       `[Sentiment] Starting batch analysis for ${tickers.length} tickers`
     );
 
-    for (const ticker of tickers) {
-      try {
-        const sentiment = await this.analyzeTicker(ticker);
-        results[ticker] = sentiment;
+    const newsResults = await newsFetcherService.fetchBatchNews(tickers);
+
+    const analysisPromises = tickers.map(ticker => {
+      const newsData = newsResults.results[ticker];
+      return this._analyzeTickerFromNews(ticker, newsData);
+    });
+
+    const analysisResults = await Promise.allSettled(analysisPromises);
+
+    analysisResults.forEach((result, index) => {
+      const ticker = tickers[index];
+      if (result.status === 'fulfilled') {
+        results[ticker] = result.value;
         processed++;
-
-        // Progress logging
-        if (processed % 5 === 0) {
-          console.log(`[Sentiment] Progress: ${processed}/${tickers.length}`);
-        }
-
-        // Delay between tickers
-        await new Promise((r) => setTimeout(r, 2000));
-      } catch (error) {
+      } else {
         console.error(
           `[Sentiment] Failed to analyze ${ticker}:`,
-          error.message
+          result.reason.message
         );
         results[ticker] = {
           ticker,
           error: true,
-          errorMessage: error.message,
+          errorMessage: result.reason.message,
         };
         failed++;
       }
-    }
+    });
 
     console.log(
       `[Sentiment] Batch complete: ${processed} processed, ${failed} failed`

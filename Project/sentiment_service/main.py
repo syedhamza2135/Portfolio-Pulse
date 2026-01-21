@@ -128,8 +128,16 @@ async def lifespan(app: FastAPI):
             tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True)
             
             # Load model and move to appropriate device (GPU/CPU)
-            model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME).to(DEVICE)
+            model = AutoModelForSequenceClassification.from_pretrained(
+                MODEL_NAME,
+                low_cpu_mem_usage=True
+                ).to(DEVICE)
             
+            # Warm up with dummy input to precompile
+            dummy_input = tokenizer("test", return_tensors="pt").to(DEVICE)
+            with torch.no_grad():
+                _ = model(**dummy_input)
+
             # Set to evaluation mode (disables dropout, batch norm updates)
             model.eval()
             
@@ -300,41 +308,24 @@ class BatchSentimentRequest(BaseModel):
 # ============================================================================
 
 def get_prediction_details(probs: torch.Tensor):
-    """
-    Converts model probability outputs to sentiment scores and labels.
-    
-    FinBERT model outputs probabilities for 3 classes:
-    - Index 0: Positive sentiment
-    - Index 1: Negative sentiment
-    - Index 2: Neutral sentiment
-    
-    The sentiment score is calculated as: positive_prob - negative_prob
-    This gives a range from -1 (very negative) to +1 (very positive).
-    
-    Args:
-        probs: Tensor of shape [batch_size, 3] containing class probabilities
-        
-    Returns:
-        List of dictionaries with sentiment, confidence, and label for each item
-    """
-    # Convert tensor to CPU and then to Python list
-    scores = probs.detach().cpu().tolist()
-    labels = ["positive", "negative", "neutral"]
-    
+    id2label = state.model.config.id2label
+
     results = []
-    for score in scores:
-        # Find the class with highest probability
+    for score in probs.detach().cpu().tolist():
         max_idx = score.index(max(score))
-        
-        # Calculate sentiment score: positive - negative
-        # This gives a continuous score from -1 to +1
-        sentiment_score = score[0] - score[1]
-        
+        label = id2label[max_idx].lower()
+
+        positive = score[list(id2label.values()).index("positive")]
+        negative = score[list(id2label.values()).index("negative")]
+
+        sentiment_score = positive - negative
+
         results.append({
             "sentiment": round(sentiment_score, 3),
-            "confidence": round(max(score), 3),  # Confidence is max probability
-            "label": labels[max_idx]  # Predicted class label
+            "confidence": round(max(score), 3),
+            "label": label
         })
+
     return results
 
 # ============================================================================
